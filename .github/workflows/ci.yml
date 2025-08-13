@@ -1,0 +1,33 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'config.yaml'
+      - 'pyproject.toml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run ruff linting
+        run: uvx ruff check .
+
+      - name: Run ruff format check
+        run: uvx ruff format --check .
+
+  unit-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      
+      - name: Pytest
+        run: |
+          task aws-dev:unit
+      

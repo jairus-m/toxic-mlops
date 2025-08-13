@@ -1,0 +1,13 @@
+runs:
+  using: composite
+  steps:
+    - name: Install uv # uv handles python versioning (refer to pyproject.toml)
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "0.8.8"
+        cache: true
+        
+    - name: Install Task
+      uses: arduino/setup-task@v1
+      with:
+        version: 3.x
