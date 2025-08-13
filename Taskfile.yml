@@ -1,0 +1,75 @@
+version: '3'
+
+tasks:
+
+  dev:up:
+    desc: Builds and starts all services.. ML training, FASTAPI backend, Streamlit frontend
+    cmds:
+      - docker-compose up --build
+
+  dev:down:
+    desc: Stops and removes all services and volumes
+    cmds:
+      - docker-compose down -v
+
+  dev:logs:
+    desc: Follows the logs of the running services
+    cmds:
+      - docker-compose logs -f
+      
+  dev:unit:
+    desc: Runs the unit tests
+    cmds:
+      - uv sync --all-extras
+      - uv run pytest
+
+  prod:init:
+    desc: Initialize Terraform/terraform
+    dir: infrastructure
+    cmds:
+      - terraform init
+
+  prod:s3:
+    desc: Create the S3 bucket for storing artifacts/terraform
+    dir: infrastructure
+    vars:
+      S3_BUCKET: '{{.S3_BUCKET | default "toxic-comments-s3"}}'
+      AWS_REGION: '{{.AWS_REGION | default "us-east-1"}}'
+    cmds:
+      - |
+        set -a
+        source ../.env
+        set +a
+        aws s3api create-bucket --bucket {{.S3_BUCKET}} --region {{.AWS_REGION}}
+
+  prod:apply:
+    desc: Run terraform apply to deploy the application/terraform
+    dir: infrastructure
+    vars:
+      S3_BUCKET: '{{.S3_BUCKET | default "toxic-comments-s3"}}'
+      AWS_REGION: '{{.AWS_REGION | default "us-east-1"}}'
+    cmds:
+      - |
+        set -a
+        source ../.env
+        set +a
+        terraform apply --auto-approve -var="s3_bucket={{.S3_BUCKET}}" -var="aws_region={{.AWS_REGION}}"
+
+  prod:destroy:
+    desc: Run terraform destroy to tear down the infrastructure/terraform
+    dir: infrastructure
+    cmds:
+      - |
+        set -a
+        source ../.env
+        set +a
+        aws logs delete-log-group --log-group-name /aws/ec2/toxic-comments-app --region us-east-1
+        terraform destroy --auto-approve
+
+  prod:reset:
+    desc: Reset the infrastructure/state/local state and start from scratch/terraform
+    dir: infrastructure
+    cmds:
+      - |
+        rm -rf .terraform/ *.tfstate* .terraform.*
+        terraform init

@@ -1,0 +1,17 @@
+.DS_Store
+*.csv
+*.egg-info
+*.pyc
+*.json
+*.log
+*.pkl
+.env
+_tests.md
+terraform.tfvars
+deployer-key.pem
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform.lock.hcl
+.terraform/
+mlruns/

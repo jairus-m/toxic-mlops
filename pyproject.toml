@@ -1,0 +1,58 @@
+[project]
+name = "toxic-comments"
+version = "0.1.0"
+description = "Serving a toxic comment analysis model via FastAPI/Streamlit and deployed on AWS"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv",
+    "pyyaml",
+    "boto3",
+]
+
+[project.optional-dependencies]
+training = [
+    "scikit-learn",
+    "pandas",
+    "kagglehub",
+    "joblib",
+    "psutil",
+]
+backend = [
+    "fastapi",
+    "uvicorn",
+    "scikit-learn",
+    "pandas",
+    "joblib",
+]
+frontend = [
+    "streamlit",
+    "plotly"
+]
+monitoring = [
+    "streamlit",
+    "pandas",
+    "altair",
+    "plotly",
+    "scikit-learn",
+    "pyyaml",
+    "boto3",
+]
+dev = [
+    "pytest",
+    "pytest-mock",
+    "ruff",
+    "mypy",
+    "pre-commit",
+    "ipykernel",
+    "pytest-asyncio",
+    "pytest-xdist",
+    "pytest-timeout",
+    "anyio",
+    "httpx",
+    "mlflow",
+    "xgboost"
+]
+
+[tool.setuptools]
+packages = ["src"]

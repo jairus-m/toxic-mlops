@@ -1,0 +1,27 @@
+# Configuration file for movie sentiment analysis project
+
+default:
+  main_logging:
+    handler: "file"
+    path: "assets/logs/app.log"
+  kaggle:
+    dataset_path: "julian3833/jigsaw-toxic-comment-classification-challenge"
+    dataset_name: "train.csv"
+
+development:
+  paths: # Local file paths
+    data: "assets/data/train.csv"
+    model: "assets/models/toxic_model.pkl"
+    model_metadata: "assets/models/toxic_model_metadata.json"
+  prediction_logging:
+    handler: "file"
+    path: "assets/logs/prediction_logs.json"    
+
+production:
+  paths: # S3 paths
+    data: "data/train.csv"
+    model: "models/toxic_model.pkl"
+    model_metadata: "models/toxic_model_metadata.json"
+  prediction_logging:
+    handler: "s3"
+    key: "logs/prediction_logs.json"
