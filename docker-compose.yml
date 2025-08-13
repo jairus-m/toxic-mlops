@@ -1,0 +1,52 @@
+services:
+  trainer:
+    build:
+      context: .
+      dockerfile: ./src/sklearn_training/Dockerfile
+    volumes:
+      - ./assets:/app/assets
+    environment:
+      - APP_ENV=development
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./src/fastapi_backend/Dockerfile
+    volumes:
+      - ./assets:/app/assets
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=development
+    depends_on:
+      trainer:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./src/streamlit_frontend/Dockerfile
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./assets:/app/assets
+    environment:
+      - APP_ENV=development
+      - FASTAPI_BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_started
+  
+  monitoring:
+    build:
+      context: .
+      dockerfile: ./src/streamlit_monitoring/Dockerfile
+    ports:
+      - "8502:8502"
+    volumes:
+      - ./assets:/app/assets
+    environment:
+      - APP_ENV=development
+    depends_on:
+      backend:
+        condition: service_started
