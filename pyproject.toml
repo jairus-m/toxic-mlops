@@ -16,7 +16,9 @@ training = [
     "pandas",
     "kagglehub",
     "joblib",
-    "psutil",
+    "psutil",   
+    "mlflow",
+    "xgboost"
 ]
 backend = [
     "fastapi",
@@ -49,9 +51,7 @@ dev = [
     "pytest-xdist",
     "pytest-timeout",
     "anyio",
-    "httpx",
-    "mlflow",
-    "xgboost"
+    "httpx"
 ]
 
 [tool.setuptools]

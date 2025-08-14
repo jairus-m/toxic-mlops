@@ -29,5 +29,5 @@ jobs:
       
       - name: Pytest
         run: |
-          task aws-dev:unit
+          task dev:unit
       
