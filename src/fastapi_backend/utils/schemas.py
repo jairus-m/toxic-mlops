@@ -186,3 +186,72 @@ class SentimentFeedback(BaseModel):
     probability: float
     true_sentiment: str
     is_sentiment_correct: bool
+
+
+class ModerationRequest(BaseModel):
+    """Request model for moderation endpoint
+
+    Example request:
+        {
+            "text": "This is some user comment that needs moderation",
+            "context": "forum_comment",
+            "user_id": "user123"
+        }
+    """
+
+    text: str = Field(
+        ..., min_length=1, max_length=5000, description="Text content to moderate"
+    )
+    context: Optional[str] = Field(
+        None,
+        description="Context where the content appears (e.g., 'forum', 'chat', 'review')",
+    )
+    user_id: Optional[str] = Field(
+        None, description="ID of the user who posted the content"
+    )
+
+
+class ModerationResponse(BaseModel):
+    """Response model for moderation decisions
+
+    Example response:
+        {
+            "decision": "human_review",
+            "confidence": 0.65,
+            "review_required": true,
+            "queue_id": "mod_20240814_123456",
+            "reasoning": "Multiple toxicity categories detected with medium confidence"
+        }
+    """
+
+    decision: str = Field(
+        ..., description="Moderation decision: 'allow', 'block', or 'human_review'"
+    )
+    confidence: float = Field(
+        ..., ge=0.0, le=1.0, description="Confidence score for the moderation decision"
+    )
+    review_required: bool = Field(..., description="Whether human review is required")
+    queue_id: Optional[str] = Field(
+        None, description="Queue ID if item needs human review"
+    )
+    reasoning: Optional[str] = Field(
+        None, description="Explanation for the moderation decision"
+    )
+
+
+class ReviewDecision(BaseModel):
+    """Request model for human moderator decisions
+
+    Example request:
+        {
+            "action": "allow",
+            "moderator_notes": "False positive - comment is actually constructive criticism"
+        }
+    """
+
+    action: str = Field(
+        ..., description="Final moderation action: 'allow', 'block', or 'warn'"
+    )
+    moderator_notes: Optional[str] = Field(
+        None, description="Notes from the human moderator"
+    )

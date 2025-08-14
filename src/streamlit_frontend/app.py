@@ -61,7 +61,8 @@ def handle_feedback(user_labels: dict, user_comments: str = ""):
         except requests.exceptions.RequestException as e:
             st.error(f"Could not submit feedback: {e}")
             logger.error(f"Could not submit feedback to backend: {e}", exc_info=True)
-            
+
+
 if "feedback_submitted" not in st.session_state:
     st.session_state.feedback_submitted = False
 
@@ -125,9 +126,7 @@ if st.button("Analyze Comment", type="primary"):
                 st.session_state.feedback_submitted = False
         except requests.exceptions.RequestException as e:
             st.error(f"Error communicating with the backend: {e}")
-            st.info(
-                f"Please ensure the backend is running at `{FASTAPI_BACKEND_URL}`."
-            )
+            st.info(f"Please ensure the backend is running at `{FASTAPI_BACKEND_URL}`.")
             st.session_state.prediction_result = None
         except Exception as e:
             st.error(f"An unexpected error occurred: {e}")
@@ -144,13 +143,13 @@ if st.session_state.prediction_result:
 
     st.subheader("Analysis Results")
     if is_toxic:
-        st.error(
-            f"TOXIC CONTENT DETECTED (Max confidence: {max_prob * 100:.1f}%)"
-        )
+        st.error(f"TOXIC CONTENT DETECTED (Max confidence: {max_prob * 100:.1f}%)")
     else:
         st.success("This comment appears to be non-toxic.")
 
-    tab1, tab2 = st.tabs(["Detailed Results", "Provide Feedback"])
+    tab1, tab2, tab3 = st.tabs(
+        ["Detailed Results", "Provide Feedback", "Moderation Actions"]
+    )
 
     with tab1:
         st.write("**Detailed Classification Results:**")
@@ -195,6 +194,176 @@ if st.session_state.prediction_result:
                     handle_feedback(corrected_labels, user_comments)
         else:
             st.success("Thank you for your feedback!")
+
+    with tab3:
+        st.write("**Moderation Actions:**")
+
+        # Show moderation recommendation based on toxicity
+        if is_toxic:
+            st.warning("⚠️ This content contains potential toxicity")
+
+            moderation_payload = {
+                "text": st.session_state.comment_text,
+                "context": "streamlit_frontend",
+                "user_id": None,
+            }
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                if st.button(
+                    "🟢 Allow Content",
+                    use_container_width=True,
+                    help="Allow this content to be published",
+                ):
+                    try:
+                        with st.spinner("Processing moderation decision..."):
+                            response = requests.post(
+                                f"{FASTAPI_BACKEND_URL}/moderate",
+                                json=moderation_payload,
+                            )
+                            response.raise_for_status()
+                            moderation_result = response.json()
+
+                            if moderation_result.get("decision") == "allow":
+                                st.success("✅ Content allowed!")
+                            else:
+                                st.info(
+                                    f"🤖 Auto-moderation decision: {moderation_result.get('decision')}"
+                                )
+                                st.write(
+                                    f"Reasoning: {moderation_result.get('reasoning', 'No reasoning provided')}"
+                                )
+
+                    except requests.exceptions.RequestException as e:
+                        st.error(f"Error processing moderation: {e}")
+                        logger.error(f"Moderation API error: {e}")
+
+            with col2:
+                if st.button(
+                    "🔴 Block Content",
+                    use_container_width=True,
+                    help="Block this content from being published",
+                ):
+                    try:
+                        with st.spinner("Processing moderation decision..."):
+                            response = requests.post(
+                                f"{FASTAPI_BACKEND_URL}/moderate",
+                                json=moderation_payload,
+                            )
+                            response.raise_for_status()
+                            moderation_result = response.json()
+
+                            st.error("🚫 Content blocked!")
+                            st.write(
+                                f"Auto-moderation reasoning: {moderation_result.get('reasoning', 'Manual block decision')}"
+                            )
+
+                    except requests.exceptions.RequestException as e:
+                        st.error(f"Error processing moderation: {e}")
+                        logger.error(f"Moderation API error: {e}")
+
+            with col3:
+                if st.button(
+                    "⚡ Auto-Moderate",
+                    use_container_width=True,
+                    help="Let the AI decide the moderation action",
+                ):
+                    try:
+                        with st.spinner("Getting AI moderation decision..."):
+                            response = requests.post(
+                                f"{FASTAPI_BACKEND_URL}/moderate",
+                                json=moderation_payload,
+                            )
+                            response.raise_for_status()
+                            moderation_result = response.json()
+
+                            decision = moderation_result.get("decision")
+                            confidence = moderation_result.get("confidence", 0)
+                            reasoning = moderation_result.get(
+                                "reasoning", "No reasoning provided"
+                            )
+
+                            if decision == "allow":
+                                st.success(
+                                    f"✅ AI Decision: Allow (Confidence: {confidence:.2f})"
+                                )
+                            elif decision == "block":
+                                st.error(
+                                    f"🚫 AI Decision: Block (Confidence: {confidence:.2f})"
+                                )
+                            elif decision == "human_review":
+                                st.warning(
+                                    f"👥 AI Decision: Needs Human Review (Confidence: {confidence:.2f})"
+                                )
+                                queue_id = moderation_result.get("queue_id")
+                                if queue_id:
+                                    st.info(f"📋 Queued for review: `{queue_id}`")
+
+                            st.write(f"**Reasoning:** {reasoning}")
+
+                    except requests.exceptions.RequestException as e:
+                        st.error(f"Error getting AI moderation decision: {e}")
+                        logger.error(f"Moderation API error: {e}")
+
+            # Show moderation queue info if available
+            try:
+                queue_response = requests.get(f"{FASTAPI_BACKEND_URL}/moderation-stats")
+                if queue_response.status_code == 200:
+                    queue_stats = queue_response.json().get("queue_statistics", {})
+                    pending_items = queue_stats.get("pending_items", 0)
+
+                    if pending_items > 0:
+                        st.markdown("---")
+                        st.info(
+                            f"📊 Current moderation queue: {pending_items} items pending human review"
+                        )
+
+                        if st.button("View Moderation Queue", use_container_width=True):
+                            queue_response = requests.get(
+                                f"{FASTAPI_BACKEND_URL}/moderation-queue?limit=10"
+                            )
+                            if queue_response.status_code == 200:
+                                queue_data = queue_response.json()
+                                items = queue_data.get("items", [])
+
+                                if items:
+                                    st.write("**Recent items in moderation queue:**")
+                                    for item in items[:5]:  # Show top 5
+                                        with st.expander(
+                                            f"Queue ID: {item.get('queue_id', 'Unknown')} ({item.get('priority', 'medium')} priority)"
+                                        ):
+                                            st.write(
+                                                f"**Text:** {item.get('text', '')[:200]}..."
+                                            )
+                                            st.write(
+                                                f"**Created:** {item.get('created_at', 'Unknown')}"
+                                            )
+
+                                            # Show predicted toxicity types
+                                            predictions = item.get(
+                                                "toxicity_predictions", {}
+                                            )
+                                            toxic_types = [
+                                                k for k, v in predictions.items() if v
+                                            ]
+                                            if toxic_types:
+                                                st.write(
+                                                    f"**Detected toxicity:** {', '.join(toxic_types)}"
+                                                )
+                                else:
+                                    st.info(
+                                        "No items currently in the moderation queue"
+                                    )
+
+            except requests.exceptions.RequestException:
+                pass  # Silently fail if moderation stats not available
+
+        else:
+            st.info("ℹ️ This content appears safe - no moderation action needed")
+            st.write(
+                "Content classification shows low toxicity probability across all categories."
+            )
 
 # --- Footer ---
 st.markdown("---")

@@ -10,6 +10,8 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import plotly.express as px
+import requests
+import os
 from datetime import datetime, timedelta
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from src.streamlit_monitoring.utils.data_loader import (
@@ -18,6 +20,8 @@ from src.streamlit_monitoring.utils.data_loader import (
     load_all_logs,
 )
 from src.core import logger
+
+FASTAPI_BACKEND_URL = os.getenv("FASTAPI_BACKEND_URL", "http://localhost:8000")
 
 TOXICITY_TYPES = [
     "toxic",
@@ -28,9 +32,7 @@ TOXICITY_TYPES = [
     "identity_hate",
 ]
 
-st.set_page_config(
-    page_title="Toxic Comment Model Monitoring", layout="wide"
-)
+st.set_page_config(page_title="Toxic Comment Model Monitoring", layout="wide")
 logger.info("Streamlit toxic comment monitoring app started.")
 
 st.title("Toxic Comment Model Monitoring Dashboard")
@@ -66,7 +68,7 @@ def parse_log_data(all_logs, feedback_logs):
     # Parse prediction logs
     prediction_data = []
     for log in all_logs:
-        if "probabilities" in log or "predictions" in log: # Support both endpoints
+        if "probabilities" in log or "predictions" in log:  # Support both endpoints
             row = {
                 "timestamp": log.get("timestamp"),
                 "endpoint": log.get("endpoint"),
@@ -121,7 +123,7 @@ else:
 
     st.header("Overview Metrics")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
         total_predictions = len(prediction_df)
@@ -144,13 +146,28 @@ else:
             st.metric("User Accuracy", f"{accuracy_rate:.1f}%")
         else:
             st.metric("User Accuracy", "N/A")
-            
+
     with col5:
         if not prediction_df["prediction_latency"].isnull().all():
             avg_latency = prediction_df["prediction_latency"].mean()
             st.metric("Avg. Latency (s)", f"{avg_latency:.4f}")
         else:
             st.metric("Avg. Latency (s)", "N/A")
+
+    with col6:
+        # Get moderation queue stats
+        try:
+            response = requests.get(
+                f"{FASTAPI_BACKEND_URL}/moderation-stats", timeout=5
+            )
+            if response.status_code == 200:
+                queue_stats = response.json().get("queue_statistics", {})
+                pending_reviews = queue_stats.get("pending_items", 0)
+                st.metric("Pending Reviews", f"{pending_reviews:,}")
+            else:
+                st.metric("Pending Reviews", "N/A")
+        except Exception:
+            st.metric("Pending Reviews", "N/A")
 
     st.header("Data Drift Analysis")
 
@@ -233,13 +250,16 @@ else:
 
     st.header("Prediction Latency Analysis")
 
-    if "prediction_latency" in prediction_df.columns and not prediction_df["prediction_latency"].isnull().all():
+    if (
+        "prediction_latency" in prediction_df.columns
+        and not prediction_df["prediction_latency"].isnull().all()
+    ):
         prediction_df["datetime"] = pd.to_datetime(
             prediction_df["timestamp"], errors="coerce"
         )
-        
+
         latency_chart = (
-            alt.Chart(prediction_df.dropna(subset=['datetime', 'prediction_latency']))
+            alt.Chart(prediction_df.dropna(subset=["datetime", "prediction_latency"]))
             .mark_line(point=True)
             .encode(
                 x=alt.X("datetime:T", title="Date"),
@@ -441,6 +461,116 @@ else:
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
+    st.header("Moderation Workflow Metrics")
+
+    # Get moderation statistics
+    try:
+        response = requests.get(f"{FASTAPI_BACKEND_URL}/moderation-stats", timeout=5)
+        if response.status_code == 200:
+            queue_stats = response.json().get("queue_statistics", {})
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.subheader("Queue Statistics")
+
+                total_items = queue_stats.get("total_items", 0)
+                pending_items = queue_stats.get("pending_items", 0)
+                reviewed_items = queue_stats.get("reviewed_items", 0)
+
+                queue_metrics_df = pd.DataFrame(
+                    {
+                        "Status": ["Pending", "Reviewed", "Total"],
+                        "Count": [pending_items, reviewed_items, total_items],
+                    }
+                )
+
+                if total_items > 0:
+                    fig = px.pie(
+                        queue_metrics_df[queue_metrics_df["Status"] != "Total"],
+                        values="Count",
+                        names="Status",
+                        title="Moderation Queue Status Distribution",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No items in moderation queue yet")
+
+            with col2:
+                st.subheader("Priority Breakdown")
+
+                high_priority = queue_stats.get("high_priority_pending", 0)
+                medium_priority = queue_stats.get("medium_priority_pending", 0)
+                low_priority = queue_stats.get("low_priority_pending", 0)
+
+                priority_df = pd.DataFrame(
+                    {
+                        "Priority": ["High", "Medium", "Low"],
+                        "Count": [high_priority, medium_priority, low_priority],
+                    }
+                )
+
+                if priority_df["Count"].sum() > 0:
+                    fig = px.bar(
+                        priority_df,
+                        x="Priority",
+                        y="Count",
+                        title="Pending Items by Priority",
+                        color="Priority",
+                        color_discrete_map={
+                            "High": "#ff4444",
+                            "Medium": "#ffaa44",
+                            "Low": "#44ff44",
+                        },
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No pending items by priority")
+
+            # Show recent queue items if available
+            try:
+                queue_response = requests.get(
+                    f"{FASTAPI_BACKEND_URL}/moderation-queue?limit=10", timeout=5
+                )
+                if queue_response.status_code == 200:
+                    queue_data = queue_response.json()
+                    items = queue_data.get("items", [])
+
+                    if items:
+                        st.subheader("Recent Moderation Queue Items")
+
+                        # Create a DataFrame for recent items
+                        queue_items_data = []
+                        for item in items[:10]:  # Show latest 10
+                            queue_items_data.append(
+                                {
+                                    "Queue ID": item.get("queue_id", "Unknown")[:20]
+                                    + "...",
+                                    "Text Preview": item.get("text", "")[:100] + "...",
+                                    "Priority": item.get("priority", "medium"),
+                                    "Created": item.get("created_at", "Unknown")[
+                                        :19
+                                    ],  # Remove timezone
+                                    "Status": item.get("status", "pending"),
+                                }
+                            )
+
+                        if queue_items_data:
+                            queue_items_df = pd.DataFrame(queue_items_data)
+                            st.dataframe(queue_items_df, use_container_width=True)
+                    else:
+                        st.info("No items currently in the moderation queue")
+            except Exception as e:
+                st.warning(f"Could not retrieve recent queue items: {e}")
+
+        else:
+            st.warning("Could not connect to moderation service")
+
+    except requests.exceptions.RequestException:
+        st.warning("Moderation service unavailable - ensure FastAPI backend is running")
+    except Exception as e:
+        st.error(f"Error loading moderation metrics: {e}")
+
     st.header("Model Health Alerts")
 
     alerts = []
@@ -513,16 +643,16 @@ else:
         for log in feedback_logs:
             row = {
                 "text": log.get("request_text", ""),
-                "is_prediction_correct": log.get("is_prediction_correct", None)
+                "is_prediction_correct": log.get("is_prediction_correct", None),
             }
 
             # Add true labels from feedback
             true_labels = log.get("true_labels", {})
             for t_type in TOXICITY_TYPES:
                 row[f"is_{t_type}"] = true_labels.get(t_type)
-            
+
             feedback_data.append(row)
-        
+
         feedback_display_df = pd.DataFrame(feedback_data)
         st.dataframe(feedback_display_df)
     else:
