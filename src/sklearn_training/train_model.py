@@ -192,11 +192,11 @@ def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[dict, dict]:
     model_metrics = {}
 
     # Train each model with MLflow tracking
-    for model_name, config in model_configs.items():
+    for model_name, model_config in model_configs.items():
         logger.info(f"Training {model_name}...")
 
         with mlflow.start_run(run_name=f"toxic_model_{model_name}"):
-            mlflow.log_params(config["params"])
+            mlflow.log_params(model_config["params"])
             mlflow.log_params(
                 {
                     "tfidf_max_features": 10000,
@@ -207,7 +207,7 @@ def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[dict, dict]:
                 }
             )
 
-            classifier = MultiOutputClassifier(config["model"], n_jobs=1)
+            classifier = MultiOutputClassifier(model_config["model"], n_jobs=1)
 
             try:
                 classifier.fit(X_train_transformed, y_train)
@@ -300,7 +300,7 @@ def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[dict, dict]:
                 "test_mean_roc_auc": float(mean_roc_auc),
                 "per_label_metrics": per_label_metrics,
                 "model_name": model_name,
-                "algorithm": config["params"]["algorithm"],
+                "algorithm": model_config["params"]["algorithm"],
                 "run_id": mlflow.active_run().info.run_id,
             }
 
