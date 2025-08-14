@@ -66,13 +66,14 @@ def parse_log_data(all_logs, feedback_logs):
     # Parse prediction logs
     prediction_data = []
     for log in all_logs:
-        if "probabilities" in log:
+        if "probabilities" in log or "predictions" in log: # Support both endpoints
             row = {
                 "timestamp": log.get("timestamp"),
                 "endpoint": log.get("endpoint"),
                 "text_length": len(log.get("request_text", "")),
                 "is_toxic": log.get("is_toxic", False),
                 "max_probability": log.get("max_probability", 0),
+                "prediction_latency": log.get("prediction_latency"),
             }
             # Add individual probabilities
             for toxicity_type in TOXICITY_TYPES:
@@ -120,7 +121,7 @@ else:
 
     st.header("Overview Metrics")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         total_predictions = len(prediction_df)
@@ -143,6 +144,13 @@ else:
             st.metric("User Accuracy", f"{accuracy_rate:.1f}%")
         else:
             st.metric("User Accuracy", "N/A")
+            
+    with col5:
+        if not prediction_df["prediction_latency"].isnull().all():
+            avg_latency = prediction_df["prediction_latency"].mean()
+            st.metric("Avg. Latency (s)", f"{avg_latency:.4f}")
+        else:
+            st.metric("Avg. Latency (s)", "N/A")
 
     st.header("Data Drift Analysis")
 
@@ -222,6 +230,30 @@ else:
                 st.altair_chart(chart, use_container_width=True)
             else:
                 st.info("Insufficient data for time trend analysis")
+
+    st.header("Prediction Latency Analysis")
+
+    if "prediction_latency" in prediction_df.columns and not prediction_df["prediction_latency"].isnull().all():
+        prediction_df["datetime"] = pd.to_datetime(
+            prediction_df["timestamp"], errors="coerce"
+        )
+        
+        latency_chart = (
+            alt.Chart(prediction_df.dropna(subset=['datetime', 'prediction_latency']))
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("datetime:T", title="Date"),
+                y=alt.Y(
+                    "prediction_latency:Q",
+                    title="Latency (seconds)",
+                ),
+                tooltip=["datetime:T", "prediction_latency:Q"],
+            )
+            .properties(title="Prediction Latency Over Time", height=300)
+        )
+        st.altair_chart(latency_chart, use_container_width=True)
+    else:
+        st.info("No latency data found in the logs.")
 
     st.header("Toxicity Type Analysis")
 

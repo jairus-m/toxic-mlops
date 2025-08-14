@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Response, Depends
 from starlette.middleware.base import BaseHTTPMiddleware
 import pandas as pd
+import time
 from src.core import (
     logger,
     get_asset_path,
@@ -127,7 +128,10 @@ async def predict(
     try:
         cleaned_text = clean_text(request.text)
 
+        start_time = time.time()
         predictions = model.predict([cleaned_text])[0]  # Get first (and only) result
+        end_time = time.time()
+        latency = end_time - start_time
 
         toxicity_predictions = {}
         for i, label in enumerate(TARGET_COLS):
@@ -140,6 +144,7 @@ async def predict(
             "request_text": request.text[:100] + "..."
             if len(request.text) > 100
             else request.text,
+            "prediction_latency": latency,
             "is_toxic": is_toxic,
             "predictions": toxicity_predictions,
         }
@@ -166,8 +171,11 @@ async def predict_proba(
     try:
         cleaned_text = clean_text(request.text)
 
+        start_time = time.time()
         binary_predictions = model.predict([cleaned_text])[0]
         probability_predictions = model.predict_proba([cleaned_text])
+        end_time = time.time()
+        latency = end_time - start_time
 
         probabilities = {}
         binary_results = {}
@@ -185,6 +193,7 @@ async def predict_proba(
             "request_text": request.text[:100] + "..."
             if len(request.text) > 100
             else request.text,
+            "prediction_latency": latency,
             "is_toxic": is_toxic,
             "max_probability": max_toxicity_prob,
             "probabilities": probabilities,
