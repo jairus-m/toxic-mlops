@@ -2300,7 +2300,6 @@ dev = [
     { name = "anyio" },
     { name = "httpx" },
     { name = "ipykernel" },
-    { name = "mlflow" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -2309,7 +2308,6 @@ dev = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "ruff" },
-    { name = "xgboost" },
 ]
 frontend = [
     { name = "plotly" },
@@ -2327,9 +2325,11 @@ monitoring = [
 training = [
     { name = "joblib" },
     { name = "kagglehub" },
+    { name = "mlflow" },
     { name = "pandas" },
     { name = "psutil" },
     { name = "scikit-learn" },
+    { name = "xgboost" },
 ]
 
 [package.metadata]
@@ -2344,7 +2344,7 @@ requires-dist = [
     { name = "joblib", marker = "extra == 'backend'" },
     { name = "joblib", marker = "extra == 'training'" },
     { name = "kagglehub", marker = "extra == 'training'" },
-    { name = "mlflow", marker = "extra == 'dev'" },
+    { name = "mlflow", marker = "extra == 'training'" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'backend'" },
     { name = "pandas", marker = "extra == 'monitoring'" },
@@ -2368,7 +2368,7 @@ requires-dist = [
     { name = "streamlit", marker = "extra == 'frontend'" },
     { name = "streamlit", marker = "extra == 'monitoring'" },
     { name = "uvicorn", marker = "extra == 'backend'" },
-    { name = "xgboost", marker = "extra == 'dev'" },
+    { name = "xgboost", marker = "extra == 'training'" },
 ]
 provides-extras = ["training", "backend", "frontend", "monitoring", "dev"]
 

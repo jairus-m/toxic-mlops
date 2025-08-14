@@ -5,34 +5,34 @@ In a 'development' environment, the model is saved locally.
 In a 'production' environment, the model is uploaded to an S3 bucket.
 """
 
-import os
 from pathlib import Path
 import pandas as pd
 import numpy as np
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score
-import joblib
 import re
-import json
 import psutil
-from datetime import datetime
 from scipy import sparse
+import mlflow
+import mlflow.sklearn
 
 from src.core import (
     logger,
     config,
-    PROJECT_ROOT,
     upload_to_s3,
+    download_from_s3,
 )
 from src.sklearn_training.utils.data_loader import download_kaggle_dataset
+from src.sklearn_training.utils.experiment_tracking import (
+    ExperimentTracker,
+    get_model_configurations,
+    TARGET_COLS,
+)
 
 pd.set_option("future.no_silent_downcasting", True)
-
-TARGET_COLS = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]
 
 
 def clean_text(text):
@@ -117,9 +117,9 @@ def process_in_batches(texts, batch_size=2000):
         yield texts[i : i + batch_size]
 
 
-def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[Pipeline, dict]:
+def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[dict, dict]:
     """
-    Create and train the toxic comment classification pipeline.
+    Create and train multiple toxic comment classification models with MLflow tracking.
 
     Args:
         X (np.ndarray): Features (cleaned comments).
@@ -127,9 +127,9 @@ def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[Pipeline, dic
         metadata (dict): Dataset metadata.
 
     Returns:
-        tuple: The trained pipeline and training metrics
+        tuple: Dictionary of trained models and their metrics
     """
-    logger.info("Creating and training the model pipeline...")
+    logger.info("Creating and training multiple model pipelines...")
 
     # Log initial memory usage
     process = psutil.Process()
@@ -148,10 +148,6 @@ def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[Pipeline, dic
     logger.info(f"Training set size: {X_train.shape[0]:,}")
     logger.info(f"Test set size: {X_test.shape[0]:,}")
 
-    # Log memory after split
-    split_memory = process.memory_info().rss / 1024 / 1024
-    logger.info(f"Memory usage after split: {split_memory:.2f} MB")
-
     logger.info("Creating TF-IDF vectorizer...")
     vectorizer = TfidfVectorizer(
         max_features=10000,
@@ -163,17 +159,14 @@ def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[Pipeline, dic
         strip_accents="ascii",
     )
 
-    # First pass: Build vocabulary
-    logger.info("Building TF-IDF vocabulary from full dataset...")
+    logger.info("Building TF-IDF vocabulary from training data...")
     try:
         vectorizer.fit(X_train)
-        logger.info("Vocabulary building completed")
         logger.info(f"Vocabulary size: {len(vectorizer.vocabulary_)}")
     except Exception as e:
-        logger.error(f"Vocabulary building failed with error: {str(e)}")
+        logger.error(f"Vocabulary building failed: {str(e)}")
         raise
 
-    # Second pass: Transform in batches
     logger.info("Transforming training data in batches...")
     transformed_batches = []
     BATCH_SIZE = 2000
@@ -188,172 +181,134 @@ def create_and_train_model_pipeline(X, y, metadata: dict) -> tuple[Pipeline, dic
                 f"Processed {(batch_idx + 1) * BATCH_SIZE} samples. Memory: {current_memory:.2f} MB"
             )
 
-    logger.info("Combining transformed batches...")
     X_train_transformed = sparse.vstack(transformed_batches)
-    logger.info(f"Combined shape: {X_train_transformed.shape}")
-
-    # Free memory
     del transformed_batches
     import gc
 
     gc.collect()
 
-    logger.info("Training classifier...")
-    classifier = MultiOutputClassifier(
-        LogisticRegression(
-            random_state=42,
-            max_iter=1000,
-            class_weight="balanced",
-            C=1.0,
-            verbose=1,
-        ),
-        n_jobs=1,
-    )
+    model_configs = get_model_configurations()
+    trained_models = {}
+    model_metrics = {}
 
-    try:
-        classifier.fit(X_train_transformed, y_train)
-        logger.info("Classifier training completed successfully")
-    except Exception as e:
-        logger.error(f"Classifier training failed with error: {str(e)}")
-        raise
+    # Train each model with MLflow tracking
+    for model_name, config in model_configs.items():
+        logger.info(f"Training {model_name}...")
 
-    pipeline = Pipeline([("tfidf", vectorizer), ("classifier", classifier)])
+        with mlflow.start_run(run_name=f"toxic_model_{model_name}"):
+            mlflow.log_params(config["params"])
+            mlflow.log_params(
+                {
+                    "tfidf_max_features": 10000,
+                    "tfidf_ngram_range": "(1, 2)",
+                    "train_size": X_train.shape[0],
+                    "test_size": X_test.shape[0],
+                    "vocabulary_size": len(vectorizer.vocabulary_),
+                }
+            )
 
-    logger.info("Evaluating model performance...")
-    test_predictions = []
-    test_probas = []
+            classifier = MultiOutputClassifier(config["model"], n_jobs=1)
 
-    for batch_texts in process_in_batches(X_test, BATCH_SIZE):
-        batch_transformed = vectorizer.transform(batch_texts)
-        batch_pred = classifier.predict(batch_transformed)
-        batch_proba = classifier.predict_proba(batch_transformed)
+            try:
+                classifier.fit(X_train_transformed, y_train)
+                logger.info(f"{model_name} training completed successfully")
+            except Exception as e:
+                logger.error(f"{model_name} training failed: {str(e)}")
+                continue
 
-        test_predictions.append(batch_pred)
-        test_probas.append([prob[:, 1] for prob in batch_proba])
+            pipeline = Pipeline([("tfidf", vectorizer), ("classifier", classifier)])
 
-        del batch_transformed
-        gc.collect()
+            logger.info(f"Evaluating {model_name} performance...")
+            test_predictions = []
+            test_probas = []
 
-    test_predictions = np.vstack(test_predictions)
-    test_proba_array = np.vstack([np.column_stack(batch) for batch in test_probas])
+            for batch_texts in process_in_batches(X_test, BATCH_SIZE):
+                batch_transformed = vectorizer.transform(batch_texts)
+                batch_pred = classifier.predict(batch_transformed)
+                batch_proba = classifier.predict_proba(batch_transformed)
 
-    train_score = classifier.score(X_train_transformed, y_train)
+                test_predictions.append(batch_pred)
+                test_probas.append([prob[:, 1] for prob in batch_proba])
 
-    per_label_metrics = {}
-    roc_auc_scores = []
+                del batch_transformed
+                gc.collect()
 
-    for i, col in enumerate(TARGET_COLS):
-        accuracy = accuracy_score(y_test[:, i], test_predictions[:, i])
-        try:
-            auc = roc_auc_score(y_test[:, i], test_proba_array[:, i])
-            roc_auc_scores.append(auc)
-        except ValueError:
-            auc = 0.0
-            roc_auc_scores.append(0.0)
+            test_predictions = np.vstack(test_predictions)
+            test_proba_array = np.vstack(
+                [np.column_stack(batch) for batch in test_probas]
+            )
 
-        per_label_metrics[col] = {"accuracy": float(accuracy), "roc_auc": float(auc)}
-        logger.info(f"  {col} - Accuracy: {accuracy:.4f}, ROC-AUC: {auc:.4f}")
+            train_score = classifier.score(X_train_transformed, y_train)
 
-    exact_match_accuracy = accuracy_score(y_test, test_predictions)
-    mean_roc_auc = np.mean(roc_auc_scores)
+            # Calculate per-label metrics
+            per_label_metrics = {}
+            roc_auc_scores = []
 
-    logger.info("Model training completed!")
-    logger.info(f"Training accuracy (mean): {train_score:.4f}")
-    logger.info(f"Test exact match accuracy: {exact_match_accuracy:.4f}")
-    logger.info(f"Test mean ROC-AUC: {mean_roc_auc:.4f}")
+            for i, col in enumerate(TARGET_COLS):
+                accuracy = accuracy_score(y_test[:, i], test_predictions[:, i])
+                try:
+                    auc = roc_auc_score(y_test[:, i], test_proba_array[:, i])
+                    roc_auc_scores.append(auc)
+                except ValueError:
+                    auc = 0.0
+                    roc_auc_scores.append(0.0)
+
+                per_label_metrics[col] = {
+                    "accuracy": float(accuracy),
+                    "roc_auc": float(auc),
+                }
+
+                # Log individual metrics to MLflow
+                mlflow.log_metric(f"{col}_accuracy", accuracy)
+                mlflow.log_metric(f"{col}_auc", auc)
+
+            exact_match_accuracy = accuracy_score(y_test, test_predictions)
+            mean_roc_auc = np.mean(roc_auc_scores)
+
+            # Log summary metrics
+            mlflow.log_metric("exact_match_accuracy", exact_match_accuracy)
+            mlflow.log_metric("mean_auc", mean_roc_auc)
+            mlflow.log_metric("training_accuracy", train_score)
+
+            # Log model and wait for it to complete
+            model_info = mlflow.sklearn.log_model(
+                pipeline,
+                "model",
+                await_registration_for=60,  # Wait up to 60 seconds for artifact logging
+            )
+
+            # Register model using the returned model URI
+            registry_model_name = "toxic-comment-classifier"
+            logger.info(
+                f"Registering model {model_name} from run {mlflow.active_run().info.run_id}"
+            )
+            mlflow.register_model(
+                model_uri=model_info.model_uri, name=registry_model_name
+            )
+            logger.info(f"Model registered successfully as {registry_model_name}")
+
+            logger.info(f"{model_name} results:")
+            logger.info(f"  Training accuracy (mean): {train_score:.4f}")
+            logger.info(f"  Test exact match accuracy: {exact_match_accuracy:.4f}")
+            logger.info(f"  Test mean ROC-AUC: {mean_roc_auc:.4f}")
+
+            # Store results
+            trained_models[model_name] = pipeline
+            model_metrics[model_name] = {
+                "training_accuracy": float(train_score),
+                "test_exact_match_accuracy": float(exact_match_accuracy),
+                "test_mean_roc_auc": float(mean_roc_auc),
+                "per_label_metrics": per_label_metrics,
+                "model_name": model_name,
+                "algorithm": config["params"]["algorithm"],
+                "run_id": mlflow.active_run().info.run_id,
+            }
 
     final_memory = process.memory_info().rss / 1024 / 1024
     logger.info(f"Final memory usage: {final_memory:.2f} MB")
     logger.info(f"Peak memory increase: {final_memory - initial_memory:.2f} MB")
 
-    training_metrics = {
-        "training_accuracy": float(train_score),
-        "test_exact_match_accuracy": float(exact_match_accuracy),
-        "test_mean_roc_auc": float(mean_roc_auc),
-        "per_label_metrics": per_label_metrics,
-        "train_size": int(X_train.shape[0]),
-        "test_size": int(X_test.shape[0]),
-        "model_parameters": {
-            "tfidf_max_features": 10000,
-            "tfidf_ngram_range": (1, 2),
-            "classifier": "LogisticRegression",
-            "class_weight": "balanced",
-            "multi_output": True,
-            "vocabulary_size": len(vectorizer.vocabulary_),
-        },
-    }
-
-    return pipeline, training_metrics
-
-
-def save_model_and_metadata(
-    pipeline: Pipeline, metadata: dict, training_metrics: dict
-) -> None:
-    """
-    Saves the trained model pipeline and associated metadata.
-
-    - In 'development', saves to local file paths defined in config.
-    - In 'production', saves to temporary local files, uploads to S3,
-      and then deletes the temporary files.
-    """
-    env = config["env"]
-    model_path = config["paths"]["model"]
-    model_metadata_path = config["paths"]["model_metadata"]
-
-    complete_metadata = {
-        "model_info": {
-            "model_type": "toxic_comment_classifier",
-            "sklearn_pipeline": True,
-            "multi_label": True,
-            "created_at": datetime.now().isoformat(),
-            "target_columns": TARGET_COLS,
-        },
-        "dataset_metadata": metadata,
-        "training_metrics": training_metrics,
-    }
-
-    if env == "production":
-        # Save to temporary local files first for uploading
-        temp_dir = PROJECT_ROOT / "assets/models"
-        temp_dir.mkdir(exist_ok=True)
-
-        model_local_path = temp_dir / Path(model_path).name
-        logger.info(f"Saving model temporarily to {model_local_path} for S3 upload...")
-        joblib.dump(pipeline, model_local_path)
-
-        metadata_local_path = temp_dir / Path(model_metadata_path).name
-        logger.info(
-            f"Saving metadata temporarily to {metadata_local_path} for S3 upload..."
-        )
-        with open(metadata_local_path, "w") as f:
-            json.dump(complete_metadata, f, indent=2)
-
-        model_s3_key = model_path
-        if upload_to_s3(model_local_path, model_s3_key):
-            logger.info(f"Removing temporary model file: {model_local_path}")
-            os.remove(model_local_path)
-
-        metadata_s3_key = model_metadata_path
-        if upload_to_s3(metadata_local_path, metadata_s3_key):
-            logger.info(f"Removing temporary metadata file: {metadata_local_path}")
-            os.remove(metadata_local_path)
-
-    else:
-        # In development, save directly to local paths
-        model_local_path = PROJECT_ROOT / model_path
-        model_local_path.parent.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Saving model locally to {model_local_path}...")
-        joblib.dump(pipeline, model_local_path)
-        model_file_size = model_local_path.stat().st_size / (1024 * 1024)
-        logger.info(f"Model saved successfully! File size: {model_file_size:.2f} MB")
-
-        # Save metadata
-        metadata_local_path = PROJECT_ROOT / model_metadata_path
-        logger.info(f"Saving metadata locally to {metadata_local_path}...")
-        with open(metadata_local_path, "w") as f:
-            json.dump(complete_metadata, f, indent=2)
-        logger.info("Metadata saved successfully!")
+    return trained_models, model_metrics
 
 
 def analyze_feature_importance(pipeline: Pipeline) -> dict:
@@ -397,30 +352,60 @@ def analyze_feature_importance(pipeline: Pipeline) -> dict:
 
 def run_training():
     """
-    Main entry point for the toxic comment classification training process.
+    Main entry point for the hybrid MLflow toxic comment classification training process.
     """
-    logger.info("Starting Jigsaw Toxic Comment Classification Model Training...")
+    logger.info(
+        "Starting Hybrid MLflow Multi-Model Toxic Comment Classification Training..."
+    )
+
+    env = config.get("env", "development")
+    db_s3_key = config.get("mlflow", {}).get("db_s3_key")
+    local_db_path = Path("mlflow.db")
+    s3_bucket = config.get("s3", {}).get("bucket_name")
+
+    if env == "production" and db_s3_key and s3_bucket:
+        logger.info(
+            f"Attempting to download existing MLflow DB from s3://{s3_bucket}/{db_s3_key}"
+        )
+        download_from_s3(s3_bucket, db_s3_key, local_db_path)
 
     try:
-        local_data_path = download_kaggle_dataset()
+        tracker = ExperimentTracker()
+        experiment_id = tracker.setup_tracking()
+        logger.info(f"MLflow experiment ID: {experiment_id}")
 
+        local_data_path = download_kaggle_dataset()
         X, y, metadata = load_and_preprocess_data(local_data_path)
 
-        pipeline, training_metrics = create_and_train_model_pipeline(X, y, metadata)
+        trained_models, model_metrics = create_and_train_model_pipeline(X, y, metadata)
 
-        feature_importance = analyze_feature_importance(pipeline)
-        training_metrics["feature_importance"] = feature_importance
+        if not trained_models:
+            raise ValueError("No models were trained successfully")
 
-        save_model_and_metadata(pipeline, metadata, training_metrics)
+        best_model_name, best_metrics = tracker.identify_best_model(model_metrics)
 
-        logger.info("Training process completed successfully!")
+        feature_importance = analyze_feature_importance(trained_models[best_model_name])
+        best_metrics["feature_importance"] = feature_importance
+
+        tracker.promote_model(best_model_name, trained_models, best_metrics, metadata)
+
+        logger.info("Hybrid MLflow training process completed successfully!")
+        logger.info(f"Best model: {best_model_name}")
         logger.info(
-            f"Final model performance - Mean ROC-AUC: {training_metrics['test_mean_roc_auc']:.4f}"
+            f"Best model performance - Mean ROC-AUC: {best_metrics['test_mean_roc_auc']:.4f}"
         )
+        logger.info(f"Total models trained: {len(trained_models)}")
+
+        tracker.log_training_summary(trained_models, best_metrics)
 
     except Exception as e:
         logger.error(f"An unexpected error occurred during training: {e}")
         raise
+    finally:
+        if env == "production" and db_s3_key and local_db_path.exists():
+            logger.info(f"Uploading MLflow DB to s3://{s3_bucket}/{db_s3_key}")
+            upload_to_s3(local_db_path, db_s3_key)
+            logger.info("MLflow DB upload complete.")
 
 
 if __name__ == "__main__":

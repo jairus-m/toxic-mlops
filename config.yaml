@@ -15,7 +15,10 @@ development:
     model_metadata: "assets/models/toxic_model_metadata.json"
   prediction_logging:
     handler: "file"
-    path: "assets/logs/prediction_logs.json"    
+    path: "assets/logs/prediction_logs.json"
+  mlflow: # All mlflow tracking artifacts/registry are stored locally
+    tracking_uri: "./assets/mlruns"
+    experiment_name: "toxic-comments-classification"
 
 production:
   paths: # S3 paths
@@ -25,3 +28,8 @@ production:
   prediction_logging:
     handler: "s3"
     key: "logs/prediction_logs.json"
+  mlflow: # All mlflow tracking artifacts/registry are stored in S3
+    tracking_uri: "sqlite:///mlflow.db"
+    mlruns: "mlruns"
+    experiment_name: "toxic-comments-classification-prod"
+    db_s3_key: "mlflow-db/mlflow.db"

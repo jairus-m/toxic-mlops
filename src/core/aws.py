@@ -65,7 +65,10 @@ def download_from_s3(
         return True
     except ClientError as e:
         if e.response["Error"]["Code"] == "404":
-            logger.error(f"S3 object not found: s3://{bucket}/{key}")
+            logger.warning(
+                f"S3 object not found: s3://{bucket}/{key}. A new DB will be created."
+            )
+            return True  # Not an error, the file just doesn't exist yet
         else:
             logger.error(f"Error downloading from S3: {e}")
         return False
