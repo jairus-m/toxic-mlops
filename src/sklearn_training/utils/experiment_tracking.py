@@ -248,7 +248,7 @@ class ExperimentTracker:
             temp_mlflow_dir = PROJECT_ROOT / "assets"
             temp_mlflow_dir.mkdir(exist_ok=True)
             mlruns_local_path = temp_mlflow_dir / Path(mlruns_path).name
-            
+
             # Copy mlruns directory to temporary location
             mlflow_source = PROJECT_ROOT / mlruns_path
             if mlflow_source.exists():
