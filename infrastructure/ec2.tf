@@ -31,7 +31,7 @@ locals {
     "-e AWS_ACCESS_KEY_ID=${var.aws_access_key_id}",
     "-e AWS_SECRET_ACCESS_KEY=${var.aws_secret_access_key}",
     "-e AWS_SESSION_TOKEN=${var.aws_session_token}",
-    "-e S3_BUCKET_NAME=${data.aws_s3_bucket.toxic_comments_assets.bucket}"
+    "-e S3_BUCKET_NAME=${aws_s3_bucket.toxic_comments_assets.bucket}"
   ]
 
   common_files = [
