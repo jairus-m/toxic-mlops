@@ -47,14 +47,14 @@ def apply_moderation_rules(
     # Decision logic
     if max_prob >= 0.9:
         return ModerationDecision(
-            action="block",
+            action="reject",
             confidence=max_prob,
             reasoning=f"High confidence toxicity detected (max: {max_prob:.2f})",
         )
 
     elif max_prob <= 0.1:
         return ModerationDecision(
-            action="allow",
+            action="approve",
             confidence=1.0 - max_prob,
             reasoning=f"Low toxicity probability (max: {max_prob:.2f})",
         )
@@ -82,7 +82,7 @@ def apply_moderation_rules(
 
     else:
         return ModerationDecision(
-            action="allow",
+            action="approve",
             confidence=1.0 - max_prob,
             reasoning=f"Low confidence toxicity (max: {max_prob:.2f})",
         )

@@ -1,5 +1,6 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import pandas as pd
+import numpy as np
 
 TARGET_COLS = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]
 
@@ -136,3 +137,109 @@ def test_feedback(client, mock_prediction_logger):
     assert "message" in response.json()
     assert "feedback_id" in response.json()
     mock_prediction_logger.info.assert_called_once()
+
+
+def test_stats(client):
+    """Test stats endpoint"""
+    response = client.get("/stats")
+    assert response.status_code == 200
+    json_response = response.json()
+    assert "model_type" in json_response
+    assert "toxicity_labels" in json_response
+    assert json_response["toxicity_labels"] == TARGET_COLS
+
+
+def test_moderate_approve(client, mock_prediction_logger):
+    """Test moderation endpoint with a non-toxic comment"""
+    response = client.post("/moderate", json={"text": "This is a friendly comment."})
+    assert response.status_code == 200
+    json_response = response.json()
+    assert json_response["decision"] == "approve"
+    assert json_response["review_required"] is False
+    mock_prediction_logger.info.assert_called_once()
+
+
+def test_moderate_human_review(client, mock_prediction_logger):
+    """Test moderation endpoint with a comment that needs human review"""
+    response = client.post("/moderate", json={"text": "This is an insult."})
+    assert response.status_code == 200
+    json_response = response.json()
+    assert json_response["decision"] == "human_review"
+    assert json_response["review_required"] is True
+    mock_prediction_logger.info.assert_called_once()
+
+
+def test_moderate_reject(client, app, mock_prediction_logger):
+    """Test moderation endpoint with a highly toxic comment"""
+    # To trigger the reject, we need to override the model dependency for this specific test
+    mock_model = MagicMock()
+    mock_model.predict.return_value = np.array([[1, 1, 1, 0, 1, 0]])
+    mock_model.predict_proba.return_value = [
+        np.array([[0.05, 0.95]]),  # toxic
+        np.array([[0.1, 0.9]]),  # severe_toxic
+        np.array([[0.05, 0.95]]),  # obscene
+        np.array([[0.98, 0.02]]),  # threat
+        np.array([[0.1, 0.9]]),  # insult
+        np.array([[0.99, 0.01]]),  # identity_hate
+    ]
+
+    from src.fastapi_backend.main import get_model
+
+    app.dependency_overrides[get_model] = lambda: mock_model
+
+    response = client.post("/moderate", json={"text": "This is extremely toxic."})
+    assert response.status_code == 200
+    json_response = response.json()
+    assert json_response["decision"] == "reject"
+    assert json_response["review_required"] is False
+    mock_prediction_logger.info.assert_called_once()
+
+    # Clean up the override
+    app.dependency_overrides = {}
+
+
+def test_get_moderation_queue(client):
+    """Test get moderation queue endpoint"""
+    with patch(
+        "src.fastapi_backend.main.get_moderation_queue",
+        return_value=[{"id": "1", "text": "Test"}],
+    ), patch(
+        "src.fastapi_backend.main.get_queue_stats",
+        return_value={"pending": 1, "reviewed": 0},
+    ):
+        response = client.get("/moderation-queue")
+        assert response.status_code == 200
+        json_response = response.json()
+        assert "items" in json_response
+        assert "stats" in json_response
+        assert len(json_response["items"]) == 1
+
+
+def test_review_content(client, mock_prediction_logger):
+    """Test review content endpoint"""
+    with patch(
+        "src.fastapi_backend.main.process_review_decision", return_value=True
+    ) as mock_process:
+        response = client.post(
+            "/moderation-queue/123/review",
+            json={"action": "approve", "moderator_notes": "Looks fine."},
+        )
+        assert response.status_code == 200
+        json_response = response.json()
+        assert json_response["message"] == "Review decision processed successfully"
+        mock_process.assert_called_once_with("123", "approve", "Looks fine.")
+        mock_prediction_logger.info.assert_called_once()
+
+
+def test_get_moderation_stats(client):
+    """Test get moderation stats endpoint"""
+    with patch(
+        "src.fastapi_backend.main.get_queue_stats",
+        return_value={"pending": 5, "reviewed": 10, "approved": 8, "rejected": 2},
+    ) as mock_stats:
+        response = client.get("/moderation-stats")
+        assert response.status_code == 200
+        json_response = response.json()
+        assert "queue_statistics" in json_response
+        assert json_response["queue_statistics"]["pending"] == 5
+        mock_stats.assert_called_once()

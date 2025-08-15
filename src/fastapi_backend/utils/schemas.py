@@ -225,7 +225,7 @@ class ModerationResponse(BaseModel):
     """
 
     decision: str = Field(
-        ..., description="Moderation decision: 'allow', 'block', or 'human_review'"
+        ..., description="Moderation decision: 'approve', 'reject', or 'human_review'"
     )
     confidence: float = Field(
         ..., ge=0.0, le=1.0, description="Confidence score for the moderation decision"
@@ -250,7 +250,7 @@ class ReviewDecision(BaseModel):
     """
 
     action: str = Field(
-        ..., description="Final moderation action: 'allow', 'block', or 'warn'"
+        ..., description="Final moderation action: 'approve', 'reject', or 'warn'"
     )
     moderator_notes: Optional[str] = Field(
         None, description="Notes from the human moderator"
