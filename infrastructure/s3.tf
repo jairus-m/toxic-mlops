@@ -6,14 +6,13 @@ resource "random_string" "bucket_suffix" {
   upper   = false
 }
 
-# Reference an existing S3 bucket instead of creating one
-# The bucket must be created manually first
-data "aws_s3_bucket" "toxic_comments_assets" {
-  bucket = var.s3_bucket
+resource "aws_s3_bucket" "toxic_comments_assets" {
+  bucket = "${var.s3_bucket}-${random_string.bucket_suffix.result}"
+  force_destroy = true
 }
 
 # This output block will display the S3 bucket name
 output "s3_bucket_name" {
   description = "The name of the S3 bucket for storing assets."
-  value       = data.aws_s3_bucket.toxic_comments_assets.bucket
+  value       = aws_s3_bucket.toxic_comments_assets.bucket
 }

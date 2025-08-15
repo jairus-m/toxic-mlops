@@ -29,18 +29,6 @@ tasks:
     cmds:
       - terraform init
 
-  prod:s3:
-    desc: Create the S3 bucket for storing artifacts/terraform
-    dir: infrastructure
-    vars:
-      S3_BUCKET: '{{.S3_BUCKET | default "toxic-comments-s3"}}'
-      AWS_REGION: '{{.AWS_REGION | default "us-east-1"}}'
-    cmds:
-      - |
-        set -a
-        source ../.env
-        set +a
-        aws s3api create-bucket --bucket {{.S3_BUCKET}} --region {{.AWS_REGION}}
 
   prod:apply:
     desc: Run terraform apply to deploy the application/terraform
