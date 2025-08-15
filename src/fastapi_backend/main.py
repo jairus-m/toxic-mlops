@@ -6,9 +6,11 @@ It is environment-aware and can load assets from local disk or S3.
 """
 
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import FastAPI, HTTPException, Response, Depends
 from starlette.middleware.base import BaseHTTPMiddleware
 import pandas as pd
+import time
 from src.core import (
     logger,
     get_asset_path,
@@ -24,8 +26,18 @@ from src.fastapi_backend.utils.schemas import (
     ToxicityProbabilityResponse,
     ExampleResponse,
     ToxicityFeedback,
+    ModerationRequest,
+    ModerationResponse,
+    ReviewDecision,
 )
 from src.fastapi_backend.utils.model_loader import load_model
+from src.fastapi_backend.utils.moderation import (
+    apply_moderation_rules,
+    queue_for_review,
+    get_moderation_queue,
+    process_review_decision,
+    get_queue_stats,
+)
 
 TARGET_COLS = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]
 
@@ -73,7 +85,15 @@ async def root() -> dict:
     """
     return {
         "message": "FastAPI Toxic Comment Classification API",
-        "endpoints": ["/health", "/predict", "/predict_proba", "/example", "/feedback"],
+        "endpoints": [
+            "/health",
+            "/predict",
+            "/predict_proba",
+            "/example",
+            "/feedback",
+            "/moderate",
+            "/moderation-queue",
+        ],
         "toxicity_types": TARGET_COLS,
     }
 
@@ -127,7 +147,10 @@ async def predict(
     try:
         cleaned_text = clean_text(request.text)
 
+        start_time = time.time()
         predictions = model.predict([cleaned_text])[0]  # Get first (and only) result
+        end_time = time.time()
+        latency = end_time - start_time
 
         toxicity_predictions = {}
         for i, label in enumerate(TARGET_COLS):
@@ -140,6 +163,7 @@ async def predict(
             "request_text": request.text[:100] + "..."
             if len(request.text) > 100
             else request.text,
+            "prediction_latency": latency,
             "is_toxic": is_toxic,
             "predictions": toxicity_predictions,
         }
@@ -166,8 +190,11 @@ async def predict_proba(
     try:
         cleaned_text = clean_text(request.text)
 
+        start_time = time.time()
         binary_predictions = model.predict([cleaned_text])[0]
         probability_predictions = model.predict_proba([cleaned_text])
+        end_time = time.time()
+        latency = end_time - start_time
 
         probabilities = {}
         binary_results = {}
@@ -185,6 +212,7 @@ async def predict_proba(
             "request_text": request.text[:100] + "..."
             if len(request.text) > 100
             else request.text,
+            "prediction_latency": latency,
             "is_toxic": is_toxic,
             "max_probability": max_toxicity_prob,
             "probabilities": probabilities,
@@ -318,6 +346,176 @@ async def model_stats(model=Depends(get_model)) -> dict:
     except Exception as e:
         logger.error(f"Error retrieving model stats: {str(e)}")
         raise HTTPException(status_code=500, detail="Error retrieving model statistics")
+
+
+@app.post("/moderate")
+async def moderate_content(
+    request: ModerationRequest, model=Depends(get_model)
+) -> ModerationResponse:
+    """
+    Main moderation endpoint - analyzes content and makes automated moderation decisions
+
+    Args:
+        request (ModerationRequest): Content to moderate with optional context
+
+    Returns:
+        ModerationResponse: Moderation decision with confidence and reasoning
+    """
+    try:
+        # Get toxicity predictions (reuse existing logic)
+        cleaned_text = clean_text(request.text)
+
+        start_time = time.time()
+        binary_predictions = model.predict([cleaned_text])[0]
+        probability_predictions = model.predict_proba([cleaned_text])
+        end_time = time.time()
+        latency = end_time - start_time
+
+        # Convert to dict format for moderation logic
+        binary_dict = {}
+        prob_dict = {}
+        for i, label in enumerate(TARGET_COLS):
+            binary_dict[label] = bool(binary_predictions[i])
+            prob_dict[label] = float(probability_predictions[i][0, 1])
+
+        # Apply moderation rules
+        moderation_decision = apply_moderation_rules(
+            binary_dict, prob_dict, request.context
+        )
+
+        # Queue for human review if needed
+        queue_id = None
+        if moderation_decision.action == "human_review":
+            queue_id = queue_for_review(
+                request.text, binary_dict, prob_dict, request.context, request.user_id
+            )
+            moderation_decision.queue_id = queue_id
+
+        # Log moderation activity
+        moderation_log = {
+            "endpoint": "/moderate",
+            "request_text": request.text[:100] + "..."
+            if len(request.text) > 100
+            else request.text,
+            "context": request.context,
+            "user_id": request.user_id,
+            "decision": moderation_decision.action,
+            "confidence": moderation_decision.confidence,
+            "queue_id": queue_id,
+            "prediction_latency": latency,
+        }
+        prediction_logger.info(moderation_log)
+
+        return ModerationResponse(
+            decision=moderation_decision.action,
+            confidence=moderation_decision.confidence,
+            review_required=moderation_decision.action == "human_review",
+            queue_id=queue_id,
+            reasoning=moderation_decision.reasoning,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in moderation endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="Error processing moderation request"
+        )
+
+
+@app.get("/moderation-queue")
+async def get_moderation_queue_endpoint(
+    status: str = "pending", priority: Optional[str] = None, limit: Optional[int] = 50
+) -> dict:
+    """
+    Get items from the moderation queue for human review
+
+    Args:
+        status: Filter by status ("pending", "reviewed", "all")
+        priority: Filter by priority ("high", "medium", "low")
+        limit: Maximum number of items to return (default 50)
+
+    Returns:
+        Dict with queue items and statistics
+    """
+    try:
+        queue_items = get_moderation_queue(status, priority, limit)
+        queue_stats = get_queue_stats()
+
+        return {
+            "items": queue_items,
+            "stats": queue_stats,
+            "total_returned": len(queue_items),
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving moderation queue: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving moderation queue")
+
+
+@app.post("/moderation-queue/{queue_id}/review")
+async def review_content(queue_id: str, decision: ReviewDecision) -> dict:
+    """
+    Process human moderator decision on queued content
+
+    Args:
+        queue_id: ID of the queue item to review
+        decision: ReviewDecision with action and optional notes
+
+    Returns:
+        Dict with confirmation of review processing
+    """
+    try:
+        success = process_review_decision(
+            queue_id, decision.action, decision.moderator_notes
+        )
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Queue item not found")
+
+        # Log review decision
+        review_log = {
+            "endpoint": "/moderation-queue/review",
+            "queue_id": queue_id,
+            "action": decision.action,
+            "moderator_notes": decision.moderator_notes,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        prediction_logger.info(review_log)
+
+        return {
+            "message": "Review decision processed successfully",
+            "queue_id": queue_id,
+            "action": decision.action,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing review decision: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing review decision")
+
+
+@app.get("/moderation-stats")
+async def get_moderation_stats() -> dict:
+    """
+    Get moderation queue statistics and metrics
+
+    Returns:
+        Dict with comprehensive moderation statistics
+    """
+    try:
+        stats = get_queue_stats()
+
+        return {
+            "queue_statistics": stats,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving moderation stats: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="Error retrieving moderation statistics"
+        )
 
 
 @app.get("/favicon.ico")

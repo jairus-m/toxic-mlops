@@ -47,6 +47,7 @@ services:
       - ./assets:/app/assets
     environment:
       - APP_ENV=development
+      - FASTAPI_BACKEND_URL=http://backend:8000
     depends_on:
       backend:
         condition: service_started

@@ -79,18 +79,33 @@ def mock_model():
     Fixture to mock the toxic comment classification model.
     """
     mock = MagicMock()
-    # Simulate a prediction for a comment that is 'toxic' and 'insult'
-    mock.predict.return_value = np.array([[1, 0, 0, 0, 1, 0]])
 
-    # Simulate probabilities for each of the 6 labels
-    mock.predict_proba.return_value = [
-        np.array([[0.2, 0.8]]),  # toxic
-        np.array([[0.9, 0.1]]),  # severe_toxic
-        np.array([[0.95, 0.05]]),  # obscene
-        np.array([[0.98, 0.02]]),  # threat
-        np.array([[0.3, 0.7]]),  # insult
-        np.array([[0.99, 0.01]]),  # identity_hate
-    ]
+    def predict_side_effect(texts):
+        if "insult" in texts[0]:
+            return np.array([[1, 0, 0, 0, 1, 0]])
+        return np.array([[0, 0, 0, 0, 0, 0]])
+
+    def predict_proba_side_effect(texts):
+        if "insult" in texts[0]:
+            return [
+                np.array([[0.2, 0.8]]),  # toxic
+                np.array([[0.9, 0.1]]),  # severe_toxic
+                np.array([[0.95, 0.05]]),  # obscene
+                np.array([[0.98, 0.02]]),  # threat
+                np.array([[0.3, 0.7]]),  # insult
+                np.array([[0.99, 0.01]]),  # identity_hate
+            ]
+        return [
+            np.array([[0.9, 0.1]]),  # toxic
+            np.array([[0.9, 0.1]]),  # severe_toxic
+            np.array([[0.95, 0.05]]),  # obscene
+            np.array([[0.98, 0.02]]),  # threat
+            np.array([[0.9, 0.1]]),  # insult
+            np.array([[0.99, 0.01]]),  # identity_hate
+        ]
+
+    mock.predict.side_effect = predict_side_effect
+    mock.predict_proba.side_effect = predict_proba_side_effect
     return mock
 
 

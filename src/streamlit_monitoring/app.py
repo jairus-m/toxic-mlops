@@ -10,6 +10,8 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import plotly.express as px
+import requests
+import os
 from datetime import datetime, timedelta
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from src.streamlit_monitoring.utils.data_loader import (
@@ -18,6 +20,8 @@ from src.streamlit_monitoring.utils.data_loader import (
     load_all_logs,
 )
 from src.core import logger
+
+FASTAPI_BACKEND_URL = os.getenv("FASTAPI_BACKEND_URL", "http://localhost:8000")
 
 TOXICITY_TYPES = [
     "toxic",
@@ -28,24 +32,22 @@ TOXICITY_TYPES = [
     "identity_hate",
 ]
 
-st.set_page_config(
-    page_title="Toxic Comment Model Monitoring", layout="wide", page_icon="🛡️"
-)
+st.set_page_config(page_title="Toxic Comment Model Monitoring", layout="wide")
 logger.info("Streamlit toxic comment monitoring app started.")
 
-st.title("🛡️ Toxic Comment Model Monitoring Dashboard")
+st.title("Toxic Comment Model Monitoring Dashboard")
 st.markdown(
     "Monitor model performance, data drift, and user feedback for the toxic comment classification system."
 )
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("Refresh Data", use_container_width=True):
         logger.info("'Refresh Data' button clicked.")
         st.rerun()
 
 
-@st.cache_data(ttl=30)  # Cache for 30s
+@st.cache_data(ttl=5)
 def load_data():
     """Load all monitoring data with caching"""
     try:
@@ -66,13 +68,14 @@ def parse_log_data(all_logs, feedback_logs):
     # Parse prediction logs
     prediction_data = []
     for log in all_logs:
-        if "probabilities" in log:
+        if "probabilities" in log or "predictions" in log:  # Support both endpoints
             row = {
                 "timestamp": log.get("timestamp"),
                 "endpoint": log.get("endpoint"),
                 "text_length": len(log.get("request_text", "")),
                 "is_toxic": log.get("is_toxic", False),
                 "max_probability": log.get("max_probability", 0),
+                "prediction_latency": log.get("prediction_latency"),
             }
             # Add individual probabilities
             for toxicity_type in TOXICITY_TYPES:
@@ -118,9 +121,9 @@ if not all_logs:
 else:
     prediction_df, feedback_df = parse_log_data(all_logs, feedback_logs)
 
-    st.header("📊 Overview Metrics")
+    st.header("Overview Metrics")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
         total_predictions = len(prediction_df)
@@ -144,7 +147,29 @@ else:
         else:
             st.metric("User Accuracy", "N/A")
 
-    st.header("📈 Data Drift Analysis")
+    with col5:
+        if not prediction_df["prediction_latency"].isnull().all():
+            avg_latency = prediction_df["prediction_latency"].mean()
+            st.metric("Avg. Latency (s)", f"{avg_latency:.4f}")
+        else:
+            st.metric("Avg. Latency (s)", "N/A")
+
+    with col6:
+        # Get moderation queue stats
+        try:
+            response = requests.get(
+                f"{FASTAPI_BACKEND_URL}/moderation-stats", timeout=5
+            )
+            if response.status_code == 200:
+                queue_stats = response.json().get("queue_statistics", {})
+                pending_reviews = queue_stats.get("pending_items", 0)
+                st.metric("Pending Reviews", f"{pending_reviews:,}")
+            else:
+                st.metric("Pending Reviews", "N/A")
+        except Exception:
+            st.metric("Pending Reviews", "N/A")
+
+    st.header("Data Drift Analysis")
 
     col1, col2 = st.columns(2)
 
@@ -223,7 +248,34 @@ else:
             else:
                 st.info("Insufficient data for time trend analysis")
 
-    st.header("🏷️ Toxicity Type Analysis")
+    st.header("Prediction Latency Analysis")
+
+    if (
+        "prediction_latency" in prediction_df.columns
+        and not prediction_df["prediction_latency"].isnull().all()
+    ):
+        prediction_df["datetime"] = pd.to_datetime(
+            prediction_df["timestamp"], errors="coerce"
+        )
+
+        latency_chart = (
+            alt.Chart(prediction_df.dropna(subset=["datetime", "prediction_latency"]))
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("datetime:T", title="Date"),
+                y=alt.Y(
+                    "prediction_latency:Q",
+                    title="Latency (seconds)",
+                ),
+                tooltip=["datetime:T", "prediction_latency:Q"],
+            )
+            .properties(title="Prediction Latency Over Time", height=300)
+        )
+        st.altair_chart(latency_chart, use_container_width=True)
+    else:
+        st.info("No latency data found in the logs.")
+
+    st.header("Toxicity Type Analysis")
 
     if not prediction_df.empty:
         col1, col2 = st.columns(2)
@@ -295,7 +347,7 @@ else:
                 fig.update_layout(height=300)
                 st.plotly_chart(fig, use_container_width=True)
 
-    st.header("🎯 Model Performance Analysis")
+    st.header("Model Performance Analysis")
 
     if not feedback_df.empty:
         col1, col2 = st.columns(2)
@@ -355,7 +407,7 @@ else:
                 fig.update_layout(height=300, xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
 
-    st.header("🎲 Prediction Confidence Analysis")
+    st.header("Prediction Confidence Analysis")
 
     if not prediction_df.empty:
         col1, col2 = st.columns(2)
@@ -409,7 +461,117 @@ else:
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-    st.header("⚠️ Model Health Alerts")
+    st.header("Moderation Workflow Metrics")
+
+    # Get moderation statistics
+    try:
+        response = requests.get(f"{FASTAPI_BACKEND_URL}/moderation-stats", timeout=5)
+        if response.status_code == 200:
+            queue_stats = response.json().get("queue_statistics", {})
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.subheader("Queue Statistics")
+
+                total_items = queue_stats.get("total_items", 0)
+                pending_items = queue_stats.get("pending_items", 0)
+                reviewed_items = queue_stats.get("reviewed_items", 0)
+
+                queue_metrics_df = pd.DataFrame(
+                    {
+                        "Status": ["Pending", "Reviewed", "Total"],
+                        "Count": [pending_items, reviewed_items, total_items],
+                    }
+                )
+
+                if total_items > 0:
+                    fig = px.pie(
+                        queue_metrics_df[queue_metrics_df["Status"] != "Total"],
+                        values="Count",
+                        names="Status",
+                        title="Moderation Queue Status Distribution",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No items in moderation queue yet")
+
+            with col2:
+                st.subheader("Priority Breakdown")
+
+                high_priority = queue_stats.get("high_priority_pending", 0)
+                medium_priority = queue_stats.get("medium_priority_pending", 0)
+                low_priority = queue_stats.get("low_priority_pending", 0)
+
+                priority_df = pd.DataFrame(
+                    {
+                        "Priority": ["High", "Medium", "Low"],
+                        "Count": [high_priority, medium_priority, low_priority],
+                    }
+                )
+
+                if priority_df["Count"].sum() > 0:
+                    fig = px.bar(
+                        priority_df,
+                        x="Priority",
+                        y="Count",
+                        title="Pending Items by Priority",
+                        color="Priority",
+                        color_discrete_map={
+                            "High": "#ff4444",
+                            "Medium": "#ffaa44",
+                            "Low": "#44ff44",
+                        },
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No pending items by priority")
+
+            # Show recent queue items if available
+            try:
+                queue_response = requests.get(
+                    f"{FASTAPI_BACKEND_URL}/moderation-queue?limit=10", timeout=5
+                )
+                if queue_response.status_code == 200:
+                    queue_data = queue_response.json()
+                    items = queue_data.get("items", [])
+
+                    if items:
+                        st.subheader("Recent Moderation Queue Items")
+
+                        # Create a DataFrame for recent items
+                        queue_items_data = []
+                        for item in items[:10]:  # Show latest 10
+                            queue_items_data.append(
+                                {
+                                    "Queue ID": item.get("queue_id", "Unknown")[:20]
+                                    + "...",
+                                    "Text Preview": item.get("text", "")[:100] + "...",
+                                    "Priority": item.get("priority", "medium"),
+                                    "Created": item.get("created_at", "Unknown")[
+                                        :19
+                                    ],  # Remove timezone
+                                    "Status": item.get("status", "pending"),
+                                }
+                            )
+
+                        if queue_items_data:
+                            queue_items_df = pd.DataFrame(queue_items_data)
+                            st.dataframe(queue_items_df, use_container_width=True)
+                    else:
+                        st.info("No items currently in the moderation queue")
+            except Exception as e:
+                st.warning(f"Could not retrieve recent queue items: {e}")
+
+        else:
+            st.warning("Could not connect to moderation service")
+
+    except requests.exceptions.RequestException:
+        st.warning("Moderation service unavailable - ensure FastAPI backend is running")
+    except Exception as e:
+        st.error(f"Error loading moderation metrics: {e}")
+
+    st.header("Model Health Alerts")
 
     alerts = []
 
@@ -465,175 +627,37 @@ else:
     if alerts:
         for alert in alerts:
             if alert["type"] == "error":
-                st.error(f"🚨 {alert['message']}")
+                st.error(f"{alert['message']}")
                 logger.warning(f"ALERT: {alert['message']}")
             else:
-                st.warning(f"⚠️ {alert['message']}")
+                st.warning(f"{alert['message']}")
                 logger.info(f"WARNING: {alert['message']}")
     else:
-        st.success("✅ All systems operating normally")
+        st.success("All systems operating normally")
         logger.info("No alerts detected - system operating normally")
 
-    st.header("📋 Detailed Analytics")
+    st.header("Raw User Feedback")
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        [
-            "🔍 Prediction Analysis",
-            "👥 User Feedback",
-            "📊 Performance Trends",
-            "🗃️ Raw Data",
-        ]
-    )
+    if feedback_logs:
+        feedback_data = []
+        for log in feedback_logs:
+            row = {
+                "text": log.get("request_text", ""),
+                "is_prediction_correct": log.get("is_prediction_correct", None),
+            }
 
-    with tab1:
-        st.subheader("Prediction Pattern Analysis")
+            # Add true labels from feedback
+            true_labels = log.get("true_labels", {})
+            for t_type in TOXICITY_TYPES:
+                row[f"is_{t_type}"] = true_labels.get(t_type)
 
-        if not prediction_df.empty:
-            # Toxicity co-occurrence analysis
-            st.write("**Toxicity Type Co-occurrence:**")
-            cooccurrence_data = []
-            for i, type1 in enumerate(TOXICITY_TYPES):
-                for type2 in TOXICITY_TYPES[i + 1 :]:
-                    pred1_col = f"{type1}_pred"
-                    pred2_col = f"{type2}_pred"
-                    if (
-                        pred1_col in prediction_df.columns
-                        and pred2_col in prediction_df.columns
-                    ):
-                        cooccur = (
-                            (prediction_df[pred1_col]) & (prediction_df[pred2_col])
-                        ).sum()
-                        total = len(prediction_df)
-                        rate = cooccur / total if total > 0 else 0
-                        cooccurrence_data.append(
-                            {
-                                "Type_1": type1.replace("_", " ").title(),
-                                "Type_2": type2.replace("_", " ").title(),
-                                "Co-occurrence_Rate": rate,
-                                "Count": cooccur,
-                            }
-                        )
+            feedback_data.append(row)
 
-            if cooccurrence_data:
-                cooccur_df = pd.DataFrame(cooccurrence_data)
-                cooccur_df = cooccur_df.sort_values(
-                    "Co-occurrence_Rate", ascending=False
-                )
-                st.dataframe(
-                    cooccur_df.head(10), use_container_width=True, hide_index=True
-                )
+        feedback_display_df = pd.DataFrame(feedback_data)
+        st.dataframe(feedback_display_df)
+    else:
+        st.info("No user feedback has been submitted yet.")
 
-    with tab2:
-        st.subheader("User Feedback Insights")
-
-        if not feedback_df.empty:
-            correct_feedback = feedback_df["is_prediction_correct"].sum()
-            total_feedback = len(feedback_df)
-
-            st.write(
-                f"**Feedback Summary:** {correct_feedback}/{total_feedback} predictions confirmed as correct"
-            )
-
-            # Most problematic toxicity types
-            st.write("**Most Challenging Toxicity Types:**")
-            error_rates = []
-            for tox_type in TOXICITY_TYPES:
-                correct_col = f"{tox_type}_correct"
-                if correct_col in feedback_df.columns:
-                    error_rate = 1 - feedback_df[correct_col].mean()
-                    error_rates.append(
-                        {
-                            "Toxicity_Type": tox_type.replace("_", " ").title(),
-                            "Error_Rate": error_rate,
-                            "Total_Feedback": len(feedback_df),
-                        }
-                    )
-
-            if error_rates:
-                error_df = pd.DataFrame(error_rates).sort_values(
-                    "Error_Rate", ascending=False
-                )
-                st.dataframe(error_df, use_container_width=True, hide_index=True)
-
-            # User comments analysis
-            if "user_comments" in feedback_df.columns:
-                user_comments = feedback_df["user_comments"].dropna()
-                if len(user_comments) > 0:
-                    st.write("**Recent User Comments:**")
-                    for comment in user_comments.tail(5):
-                        if comment.strip():
-                            st.write(f"💬 {comment}")
-
-    with tab3:
-        st.subheader("Performance Trends")
-
-        if not feedback_df.empty and "timestamp" in feedback_df.columns:
-            # Add datetime parsing for feedback
-            feedback_df["datetime"] = pd.to_datetime(
-                feedback_df["timestamp"], errors="coerce"
-            )
-            feedback_df["hour"] = feedback_df["datetime"].dt.hour
-
-            # Hourly accuracy trend
-            if len(feedback_df) > 0:
-                hourly_acc = (
-                    feedback_df.groupby("hour")["is_prediction_correct"]
-                    .mean()
-                    .reset_index()
-                )
-
-                fig = px.line(
-                    hourly_acc,
-                    x="hour",
-                    y="is_prediction_correct",
-                    title="Model Accuracy by Hour of Day",
-                    labels={
-                        "is_prediction_correct": "Accuracy Rate",
-                        "hour": "Hour of Day",
-                    },
-                )
-                fig.update_layout(height=300)
-                st.plotly_chart(fig, use_container_width=True)
-
-        # Confidence calibration
-        if not prediction_df.empty and not feedback_df.empty:
-            st.write("**Model Calibration Analysis:**")
-            st.info(
-                "Shows how well the model's confidence scores align with actual accuracy"
-            )
-
-            # This would require matching predictions with feedback - simplified version
-            avg_confidence = prediction_df["max_probability"].mean()
-            st.metric("Average Model Confidence", f"{avg_confidence:.3f}")
-
-    with tab4:
-        st.subheader("Raw Data Export")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.write("**Recent Predictions:**")
-            if not prediction_df.empty:
-                display_cols = ["timestamp", "is_toxic", "max_probability"] + [
-                    f"{t}_pred"
-                    for t in TOXICITY_TYPES
-                    if f"{t}_pred" in prediction_df.columns
-                ]
-                recent_predictions = prediction_df[display_cols].tail(10)
-                st.dataframe(
-                    recent_predictions, use_container_width=True, hide_index=True
-                )
-
-        with col2:
-            st.write("**Recent Feedback:**")
-            if not feedback_df.empty:
-                feedback_display_cols = ["timestamp", "is_prediction_correct"] + [
-                    f"{t}_correct"
-                    for t in TOXICITY_TYPES
-                    if f"{t}_correct" in feedback_df.columns
-                ]
-                recent_feedback = feedback_df[feedback_display_cols].tail(10)
-                st.dataframe(recent_feedback, use_container_width=True, hide_index=True)
 
 st.markdown("---")
 st.markdown(
