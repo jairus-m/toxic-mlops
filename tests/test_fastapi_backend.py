@@ -200,12 +200,15 @@ def test_moderate_reject(client, app, mock_prediction_logger):
 
 def test_get_moderation_queue(client):
     """Test get moderation queue endpoint"""
-    with patch(
-        "src.fastapi_backend.main.get_moderation_queue",
-        return_value=[{"id": "1", "text": "Test"}],
-    ), patch(
-        "src.fastapi_backend.main.get_queue_stats",
-        return_value={"pending": 1, "reviewed": 0},
+    with (
+        patch(
+            "src.fastapi_backend.main.get_moderation_queue",
+            return_value=[{"id": "1", "text": "Test"}],
+        ),
+        patch(
+            "src.fastapi_backend.main.get_queue_stats",
+            return_value={"pending": 1, "reviewed": 0},
+        ),
     ):
         response = client.get("/moderation-queue")
         assert response.status_code == 200

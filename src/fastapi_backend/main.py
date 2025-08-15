@@ -28,7 +28,7 @@ from src.fastapi_backend.utils.schemas import (
     ToxicityFeedback,
     ModerationRequest,
     ModerationResponse,
-    ReviewDecision
+    ReviewDecision,
 )
 from src.fastapi_backend.utils.model_loader import load_model
 from src.fastapi_backend.utils.moderation import (
