@@ -88,7 +88,7 @@ st.subheader("Enter Comment to Analyze")
 if st.button("Get Random Example Comment"):
     logger.info("'Get Random Example Comment' button clicked.")
     try:
-        response = requests.get(f"{FASTAPI_BACKEND_URL}/example")
+        response = requests.get(f"{FASTAPI_BACKEND_URL}/example", timeout=10)
         response.raise_for_status()
         example_data = response.json()
         example_comment = example_data.get("comment", "")
@@ -96,12 +96,21 @@ if st.button("Get Random Example Comment"):
         st.session_state.prediction_result = None
         st.session_state.feedback_submitted = False
         st.rerun()
+    except requests.exceptions.Timeout:
+        st.error("Request timed out while fetching example comment.")
+        st.info("Please try again in a few moments.")
+    except requests.exceptions.ConnectionError:
+        st.error(f"Cannot connect to the backend at `{FASTAPI_BACKEND_URL}`.")
+        st.warning("Please ensure the FastAPI backend service is running.")
     except requests.exceptions.RequestException as e:
-        st.error(f"Could not connect to the backend: {e}")
+        st.error(f"Could not fetch example comment: {e}")
         st.warning("Please ensure the FastAPI backend service is running.")
         logger.error(
             f"Could not connect to backend for random comment: {e}", exc_info=True
         )
+    except Exception as e:
+        st.error(f"Unexpected error while fetching example: {e}")
+        logger.exception(f"Unexpected error fetching example comment: {e}")
 
 comment_text = st.text_area(
     "Comment:",
@@ -119,11 +128,30 @@ if st.button("Analyze Comment", type="primary"):
             with st.spinner("Analyzing comment for toxicity..."):
                 payload = {"text": st.session_state.comment_text}
                 response = requests.post(
-                    f"{FASTAPI_BACKEND_URL}/predict_proba", json=payload
+                    f"{FASTAPI_BACKEND_URL}/predict_proba", json=payload, timeout=30
                 )
                 response.raise_for_status()
                 st.session_state.prediction_result = response.json()
                 st.session_state.feedback_submitted = False
+        except requests.exceptions.Timeout:
+            st.error(
+                "Request timed out. The model might be loading or the server is busy."
+            )
+            st.info("Please try again in a few moments.")
+            st.session_state.prediction_result = None
+        except requests.exceptions.ConnectionError:
+            st.error(f"Cannot connect to the backend at `{FASTAPI_BACKEND_URL}`.")
+            st.info("Please ensure the backend service is running and accessible.")
+            st.session_state.prediction_result = None
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 500:
+                st.error(
+                    "The server encountered an internal error (model may not be loaded)."
+                )
+                st.info("This often happens when the ML model hasn't been trained yet.")
+            else:
+                st.error(f"HTTP error {e.response.status_code}: {e}")
+            st.session_state.prediction_result = None
         except requests.exceptions.RequestException as e:
             st.error(f"Error communicating with the backend: {e}")
             st.info(f"Please ensure the backend is running at `{FASTAPI_BACKEND_URL}`.")
@@ -238,6 +266,9 @@ if st.session_state.prediction_result:
                     except requests.exceptions.RequestException as e:
                         st.error(f"Error processing moderation: {e}")
                         logger.error(f"Moderation API error: {e}")
+                    except Exception as e:
+                        st.error(f"Unexpected error during moderation: {e}")
+                        logger.exception(f"Unexpected moderation error: {e}")
 
             with col2:
                 if st.button(
@@ -262,6 +293,9 @@ if st.session_state.prediction_result:
                     except requests.exceptions.RequestException as e:
                         st.error(f"Error processing moderation: {e}")
                         logger.error(f"Moderation API error: {e}")
+                    except Exception as e:
+                        st.error(f"Unexpected error during moderation: {e}")
+                        logger.exception(f"Unexpected moderation error: {e}")
 
             with col3:
                 if st.button(
@@ -305,6 +339,9 @@ if st.session_state.prediction_result:
                     except requests.exceptions.RequestException as e:
                         st.error(f"Error getting AI moderation decision: {e}")
                         logger.error(f"Moderation API error: {e}")
+                    except Exception as e:
+                        st.error(f"Unexpected error during AI moderation: {e}")
+                        logger.exception(f"Unexpected AI moderation error: {e}")
 
             # Show moderation queue info if available
             try:
@@ -320,10 +357,11 @@ if st.session_state.prediction_result:
                         )
 
                         if st.button("View Moderation Queue", use_container_width=True):
-                            queue_response = requests.get(
-                                f"{FASTAPI_BACKEND_URL}/moderation-queue?limit=10"
-                            )
-                            if queue_response.status_code == 200:
+                            try:
+                                queue_response = requests.get(
+                                    f"{FASTAPI_BACKEND_URL}/moderation-queue?limit=10"
+                                )
+                                queue_response.raise_for_status()
                                 queue_data = queue_response.json()
                                 items = queue_data.get("items", [])
 
@@ -355,9 +393,17 @@ if st.session_state.prediction_result:
                                     st.info(
                                         "No items currently in the moderation queue"
                                     )
+                            except requests.exceptions.RequestException as e:
+                                st.error(f"Error loading moderation queue: {e}")
+                                logger.error(f"Queue loading error: {e}")
+                            except Exception as e:
+                                st.error(f"Unexpected error loading queue: {e}")
+                                logger.exception(f"Unexpected queue error: {e}")
 
-            except requests.exceptions.RequestException:
-                pass  # Silently fail if moderation stats not available
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"Moderation stats unavailable: {e}")
+            except Exception as e:
+                logger.warning(f"Unexpected error getting moderation stats: {e}")
 
         else:
             st.info("ℹ️ This content appears safe - no moderation action needed")
