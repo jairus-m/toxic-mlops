@@ -11,11 +11,17 @@ variable "aws_secret_access_key" {
 }
 
 variable "aws_session_token" {
-  description = "AWS session token (if required)"
+  description = "AWS session token"
   type        = string
   sensitive   = true
-  default     = ""
 }
+
+variable "train_model" {
+  description = "If true, runs the full model training pipeline. If false, deploys a pre-existing model."
+  type        = bool
+  default     = true
+}
+
 
 variable "aws_region" {
   description = "The AWS region to deploy resources in."

@@ -44,10 +44,11 @@ col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     if st.button("Refresh Data", use_container_width=True):
         logger.info("'Refresh Data' button clicked.")
+        st.cache_data.clear()  # Clear cache to prevent memory buildup
         st.rerun()
 
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=10, max_entries=1)
 def load_data():
     """Load all monitoring data with caching"""
     try:

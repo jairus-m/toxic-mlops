@@ -13,7 +13,7 @@ from src.sklearn_training import train_model
 @patch("src.sklearn_training.train_model.create_and_train_model_pipeline")
 @patch("src.sklearn_training.train_model.analyze_feature_importance")
 @patch("src.sklearn_training.utils.experiment_tracking.ExperimentTracker.promote_model")
-def test_run_training_smoke(
+def test_main_smoke(
     mock_promote_model,
     mock_analyze_feature_importance,
     mock_create_and_train_model_pipeline,
@@ -61,9 +61,9 @@ def test_run_training_smoke(
 
     try:
         # Run the main training function
-        train_model.run_training()
+        train_model.main()
     except Exception as e:
-        pytest.fail(f"run_training() raised an exception: {e}")
+        pytest.fail(f"main() raised an exception: {e}")
 
     # Assert that the key functions in the training pipeline were called
     mock_download_kaggle_dataset.assert_called_once()

@@ -19,4 +19,4 @@ COPY pyproject.toml ./
 # Install dependencies using uv that are specific to the training
 RUN uv pip install --system --no-cache ".[training]"
 
-CMD ["python", "-c", "from src.sklearn_training.train_model import run_training; run_training()"]
+CMD ["python", "-c", "from src.sklearn_training.train_model import main; main()"]

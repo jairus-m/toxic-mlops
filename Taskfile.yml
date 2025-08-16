@@ -4,8 +4,10 @@ tasks:
 
   dev:up:
     desc: Builds and starts all services.. ML training, FASTAPI backend, Streamlit frontend
+    vars:
+      TRAIN_MODEL: '{{.TRAIN_MODEL | default "true"}}'
     cmds:
-      - docker-compose up --build
+      - TRAIN_MODEL={{.TRAIN_MODEL}} docker-compose up --build
 
   dev:down:
     desc: Stops and removes all services and volumes
@@ -36,12 +38,14 @@ tasks:
     vars:
       S3_BUCKET: '{{.S3_BUCKET | default "toxic-comments-s3"}}'
       AWS_REGION: '{{.AWS_REGION | default "us-east-1"}}'
+      TRAIN_MODEL: '{{.TRAIN_MODEL | default "true"}}'
     cmds:
       - |
         set -a
         source ../.env
         set +a
-        terraform apply --auto-approve -var="s3_bucket={{.S3_BUCKET}}" -var="aws_region={{.AWS_REGION}}"
+        terraform apply --auto-approve -var="s3_bucket={{.S3_BUCKET}}" -var="aws_region={{.AWS_REGION}}" -var="train_model={{.TRAIN_MODEL}}"
+
 
   prod:destroy:
     desc: Run terraform destroy to tear down the infrastructure/terraform

@@ -17,6 +17,8 @@ import mlflow.sklearn
 import joblib
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.multioutput import MultiOutputClassifier
 from xgboost import XGBClassifier
 
 from src.core import logger, config, PROJECT_ROOT, upload_to_s3
@@ -92,7 +94,7 @@ class ExperimentTracker:
     Manages MLflow experiment tracking and model operations for toxic comment classification.
 
     Provides methods for setting up MLflow tracking, comparing models, promoting winners,
-    and future model registry operations.
+    and model registry methods.
     """
 
     def __init__(self):
@@ -104,7 +106,6 @@ class ExperimentTracker:
     def setup_tracking(self) -> str:
         """
         Initialize MLflow tracking based on environment configuration.
-
         Returns:
             str: The experiment ID
         """
@@ -141,10 +142,8 @@ class ExperimentTracker:
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Identify the best performing model based on mean ROC-AUC score.
-
         Args:
             model_metrics: Dictionary of model metrics
-
         Returns:
             tuple: Best model name and its metrics
         """
@@ -179,7 +178,6 @@ class ExperimentTracker:
     ) -> None:
         """
         Promote the best model to the stable deployment path based on environment.
-
         Args:
             best_model_name: Name of the best model
             trained_models: Dictionary of trained models
@@ -243,7 +241,7 @@ class ExperimentTracker:
                 os.remove(metadata_local_path)
 
             # Upload mlruns to S3 - this is behaviour specific to production
-            # need to refactor this
+            # may need to refactor this
             mlruns_path = config["mlflow"]["mlruns"]
             temp_mlflow_dir = PROJECT_ROOT / "assets"
             temp_mlflow_dir.mkdir(exist_ok=True)
@@ -371,3 +369,128 @@ class ExperimentTracker:
         )
 
         logger.info(f"Model {model_name} v{version} promoted to Production stage")
+
+
+def register_model_in_mlflow(pipeline: Pipeline, model_name: str) -> str:
+    """
+    Register model in MLflow registry.
+
+    Args:
+        pipeline: Trained model pipeline
+        model_name (str): Name of the model
+
+    Returns:
+        str: MLflow run ID
+    """
+    # Log model and wait for it to complete
+    model_info = mlflow.sklearn.log_model(
+        pipeline,
+        "model",
+        await_registration_for=60,  # Wait up to 60 seconds for artifact logging
+    )
+
+    # Register model using the returned model URI
+    registry_model_name = "toxic-comment-classifier"
+    logger.info(
+        f"Registering model {model_name} from run {mlflow.active_run().info.run_id}"
+    )
+    mlflow.register_model(model_uri=model_info.model_uri, name=registry_model_name)
+    logger.info(f"Model registered successfully as {registry_model_name}")
+
+    return mlflow.active_run().info.run_id
+
+
+def train_single_model(
+    model_name: str,
+    model_config: dict,
+    X_train_transformed,
+    y_train,
+    X_test,
+    y_test,
+    vectorizer,
+    X_train,
+) -> tuple:
+    """
+    Train a single model with MLflow tracking.
+
+    Args:
+        model_name (str): Name of the model
+        model_config (dict): Model configuration
+        X_train_transformed: Transformed training features
+        y_train: Training labels
+        X_test: Test features
+        y_test: Test labels
+        vectorizer: TF-IDF vectorizer
+        X_train: Original training features
+
+    Returns:
+        tuple: (pipeline, metrics_dict) or (None, None) if training failed
+    """
+    from .model_evaluation import evaluate_model  # Import here to avoid circular import
+
+    logger.info(f"Training {model_name}...")
+
+    with mlflow.start_run(run_name=f"toxic_model_{model_name}"):
+        # Log initial parameters
+        mlflow.log_params(model_config["params"])
+        mlflow.log_params(
+            {
+                "tfidf_max_features": 10000,  # TFIDF_MAX_FEATURES constant
+                "tfidf_ngram_range": str((1, 2)),  # TFIDF_NGRAM_RANGE constant
+                "train_size": X_train.shape[0],
+                "test_size": X_test.shape[0],
+                "vocabulary_size": len(vectorizer.vocabulary_),
+            }
+        )
+
+        classifier = MultiOutputClassifier(model_config["model"], n_jobs=1)
+
+        try:
+            classifier.fit(X_train_transformed, y_train)
+            logger.info(f"{model_name} training completed successfully")
+        except Exception as e:
+            logger.error(f"{model_name} training failed: {str(e)}")
+            return None, None
+
+        pipeline = Pipeline([("tfidf", vectorizer), ("classifier", classifier)])
+
+        logger.info(f"Evaluating {model_name} performance...")
+        metrics = evaluate_model(
+            classifier, X_test, y_test, vectorizer, X_train_transformed, y_train
+        )
+
+        # Log metrics to MLflow
+        for col in TARGET_COLS:
+            mlflow.log_metric(
+                f"{col}_accuracy", metrics["per_label_metrics"][col]["accuracy"]
+            )
+            mlflow.log_metric(
+                f"{col}_auc", metrics["per_label_metrics"][col]["roc_auc"]
+            )
+
+        # Log summary metrics
+        mlflow.log_metric("exact_match_accuracy", metrics["test_exact_match_accuracy"])
+        mlflow.log_metric("mean_auc", metrics["test_mean_roc_auc"])
+        mlflow.log_metric("training_accuracy", metrics["training_accuracy"])
+
+        run_id = register_model_in_mlflow(pipeline, model_name)
+
+        logger.info(f"{model_name} results:")
+        logger.info(f"  Training accuracy (mean): {metrics['training_accuracy']:.4f}")
+        logger.info(
+            f"  Test exact match accuracy: {metrics['test_exact_match_accuracy']:.4f}"
+        )
+        logger.info(f"  Test mean ROC-AUC: {metrics['test_mean_roc_auc']:.4f}")
+
+        # Create metrics dict in expected format
+        model_metrics = {
+            "training_accuracy": metrics["training_accuracy"],
+            "test_exact_match_accuracy": metrics["test_exact_match_accuracy"],
+            "test_mean_roc_auc": metrics["test_mean_roc_auc"],
+            "per_label_metrics": metrics["per_label_metrics"],
+            "model_name": model_name,
+            "algorithm": model_config["params"]["algorithm"],
+            "run_id": run_id,
+        }
+
+        return pipeline, model_metrics
