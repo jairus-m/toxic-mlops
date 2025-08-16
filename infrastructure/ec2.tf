@@ -150,7 +150,7 @@ module "ml_training_deployment" {
 
   build_and_run_commands = [
     "sudo docker build -f src/sklearn_training/Dockerfile -t toxic-comments-training .",
-    "sudo docker run -d --name training ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.ml_training.id}-training ${join(" ", local.common_env_vars)} toxic-comments-training:latest"
+    "sudo docker run -d --name training ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.ml_training.id}-training ${join(" ", local.common_env_vars)} -e TRAIN_MODEL=${var.train_model} toxic-comments-training:latest"
   ]
 }
 
@@ -213,7 +213,7 @@ module "monitoring_deployment" {
 
   build_and_run_commands = [
     "sudo docker build -f src/streamlit_monitoring/Dockerfile -t toxic-comments-monitoring .",
-    "sudo docker run -d -p 8502:8502 --restart=always --name monitoring ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.monitoring.id}-monitoring ${join(" ", local.common_env_vars)} toxic-comments-monitoring:latest"
+    "sudo docker run -d -p 8502:8502 --restart=always --name monitoring ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.monitoring.id}-monitoring ${join(" ", local.common_env_vars)} -e FASTAPI_BACKEND_URL=http://${aws_instance.backend.public_ip}:8000 toxic-comments-monitoring:latest"
   ]
 }
 
