@@ -12,7 +12,7 @@ import altair as alt
 import plotly.express as px
 import requests
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from src.streamlit_monitoring.utils.data_loader import (
     load_feedback_logs,
@@ -218,7 +218,7 @@ else:
         st.subheader("Toxicity Distribution Over Time")
         if not prediction_df.empty:
             prediction_df["datetime"] = pd.to_datetime(
-                prediction_df["timestamp"], errors="coerce"
+                prediction_df["timestamp"], errors="coerce", utc=True
             )
             prediction_df["date"] = prediction_df["datetime"].dt.date
 
@@ -256,7 +256,7 @@ else:
         and not prediction_df["prediction_latency"].isnull().all()
     ):
         prediction_df["datetime"] = pd.to_datetime(
-            prediction_df["timestamp"], errors="coerce"
+            prediction_df["timestamp"], errors="coerce", utc=True
         )
 
         latency_chart = (
@@ -600,7 +600,8 @@ else:
     if not prediction_df.empty:
         recent_predictions = len(
             prediction_df[
-                prediction_df["datetime"] > datetime.now() - timedelta(days=1)
+                prediction_df["datetime"]
+                > datetime.now(timezone.utc) - timedelta(days=1)
             ]
         )
         if recent_predictions == 0:

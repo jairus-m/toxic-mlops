@@ -26,6 +26,7 @@ backend = [
     "scikit-learn",
     "pandas",
     "joblib",
+    "boto3",
 ]
 frontend = [
     "streamlit",

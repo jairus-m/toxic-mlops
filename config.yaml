@@ -26,8 +26,8 @@ production:
     model: "models/toxic_model.pkl"
     model_metadata: "models/toxic_model_metadata.json"
   prediction_logging:
-    handler: "s3"
-    key: "logs/prediction_logs.json"
+    handler: "dynamodb"
+    table_name: "prediction_logs"
   mlflow: # All mlflow tracking artifacts/registry are stored in S3
     tracking_uri: "sqlite:///mlflow.db"
     mlruns: "mlruns"

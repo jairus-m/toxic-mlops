@@ -31,7 +31,8 @@ locals {
     "-e AWS_ACCESS_KEY_ID=${var.aws_access_key_id}",
     "-e AWS_SECRET_ACCESS_KEY=${var.aws_secret_access_key}",
     "-e AWS_SESSION_TOKEN=${var.aws_session_token}",
-    "-e S3_BUCKET_NAME=${aws_s3_bucket.toxic_comments_assets.bucket}"
+    "-e S3_BUCKET_NAME=${aws_s3_bucket.toxic_comments_assets.bucket}",
+    "-e DYNAMODB_TABLE_NAME=${aws_dynamodb_table.prediction_logs.name}"
   ]
 
   common_files = [
@@ -63,8 +64,8 @@ locals {
 
 # Sklearn Model Training EC2 instance
 resource "aws_instance" "ml_training" {
-  instance_type = "t2.medium"  # Upgraded from t2.micro for ML training memory requirements
-  ami           = data.aws_ami.amazon_linux.id
+  instance_type = "t2.medium" # Upgraded from t2.micro for ML training memory requirements
+  ami           = local.amazon_linux_ami_id
 
   vpc_security_group_ids = [aws_security_group.backend.id]
   key_name               = aws_key_pair.deployer.key_name
@@ -83,7 +84,7 @@ resource "aws_instance" "backend" {
     aws_instance.ml_training,
   ]
   instance_type = "t2.micro"
-  ami           = data.aws_ami.amazon_linux.id
+  ami           = local.amazon_linux_ami_id
 
   vpc_security_group_ids = [aws_security_group.backend.id]
   key_name               = aws_key_pair.deployer.key_name
@@ -102,7 +103,7 @@ resource "aws_instance" "frontend" {
     aws_instance.backend
   ]
   instance_type = "t2.micro"
-  ami           = data.aws_ami.amazon_linux.id
+  ami           = local.amazon_linux_ami_id
 
   vpc_security_group_ids = [aws_security_group.frontend.id]
   key_name               = aws_key_pair.deployer.key_name
@@ -121,7 +122,7 @@ resource "aws_instance" "monitoring" {
     aws_instance.frontend
   ]
   instance_type = "t2.micro"
-  ami           = data.aws_ami.amazon_linux.id
+  ami           = local.amazon_linux_ami_id
 
   vpc_security_group_ids = [aws_security_group.monitoring.id]
   key_name               = aws_key_pair.deployer.key_name
@@ -155,8 +156,8 @@ module "ml_training_deployment" {
 }
 
 module "backend_deployment" {
-  source    = "./modules/docker_deployment"
-  depends_on = [module.ml_training_deployment]
+  source      = "./modules/docker_deployment"
+  depends_on  = [module.ml_training_deployment]
   instance_ip = aws_instance.backend.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
@@ -176,8 +177,8 @@ module "backend_deployment" {
 }
 
 module "frontend_deployment" {
-  source    = "./modules/docker_deployment"
-  depends_on = [module.backend_deployment]
+  source      = "./modules/docker_deployment"
+  depends_on  = [module.backend_deployment]
   instance_ip = aws_instance.frontend.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
@@ -197,8 +198,8 @@ module "frontend_deployment" {
 }
 
 module "monitoring_deployment" {
-  source    = "./modules/docker_deployment"
-  depends_on = [module.frontend_deployment]
+  source      = "./modules/docker_deployment"
+  depends_on  = [module.frontend_deployment]
   instance_ip = aws_instance.monitoring.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
@@ -217,15 +218,10 @@ module "monitoring_deployment" {
   ]
 }
 
-# Data source to find the latest Amazon Linux AMI
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
-  }
+# Hardcoded Amazon Linux 2 AMI ID for us-east-1
+# Using fixed AMI to avoid EC2:DescribeImages permission issues in learning environments
+locals {
+  amazon_linux_ami_id = "ami-0c02fb55956c7d316" # Amazon Linux 2 AMI (HVM) - Kernel 5.10, SSD Volume Type
 }
 
 # Outputs

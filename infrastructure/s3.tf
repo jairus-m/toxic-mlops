@@ -7,7 +7,7 @@ resource "random_string" "bucket_suffix" {
 }
 
 resource "aws_s3_bucket" "toxic_comments_assets" {
-  bucket = "${var.s3_bucket}-${random_string.bucket_suffix.result}"
+  bucket        = "${var.s3_bucket}-${random_string.bucket_suffix.result}"
   force_destroy = true
 }
 
