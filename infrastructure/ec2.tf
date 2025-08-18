@@ -45,10 +45,6 @@ locals {
       destination = "/home/ec2-user/app/config.yaml"
     },
     {
-      source      = "${path.module}/../pyproject.toml"
-      destination = "/home/ec2-user/app/pyproject.toml"
-    },
-    {
       source      = "${path.module}/../src/core"
       destination = "/home/ec2-user/app/src/core"
     }
