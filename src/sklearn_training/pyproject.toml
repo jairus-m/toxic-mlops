@@ -1,0 +1,21 @@
+[project]
+name = "toxic-comments-training"
+version = "0.1.0"
+description = "ML training pipeline for toxic comment analysis"
+requires-python = ">=3.12"
+dependencies = [
+    "scikit-learn",
+    "pandas",
+    "kagglehub",
+    "joblib",
+    "psutil",
+    "mlflow",
+    "xgboost",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+toxic-comments-core = { workspace = true }

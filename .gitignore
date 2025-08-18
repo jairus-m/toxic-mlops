@@ -5,6 +5,7 @@
 *.json
 *.log
 *.pkl
+build/
 .env
 _tests.md
 terraform.tfvars

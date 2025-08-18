@@ -1,6 +1,16 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
+
+[manifest]
+members = [
+    "toxic-comments-backend",
+    "toxic-comments-core",
+    "toxic-comments-frontend",
+    "toxic-comments-monitoring",
+    "toxic-comments-monorepo",
+    "toxic-comments-training",
+]
 
 [[package]]
 name = "alembic"
@@ -2279,23 +2289,91 @@ wheels = [
 ]
 
 [[package]]
-name = "toxic-comments"
+name = "toxic-comments-backend"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "src/fastapi_backend" }
 dependencies = [
     { name = "boto3" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-backend = [
     { name = "fastapi" },
     { name = "joblib" },
     { name = "pandas" },
     { name = "scikit-learn" },
     { name = "uvicorn" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3" },
+    { name = "fastapi" },
+    { name = "joblib" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "uvicorn" },
+]
+
+[[package]]
+name = "toxic-comments-core"
+version = "0.1.0"
+source = { editable = "src/core" }
+dependencies = [
+    { name = "boto3" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+]
+
+[[package]]
+name = "toxic-comments-frontend"
+version = "0.1.0"
+source = { editable = "src/streamlit_frontend" }
+dependencies = [
+    { name = "plotly" },
+    { name = "streamlit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "plotly" },
+    { name = "streamlit" },
+]
+
+[[package]]
+name = "toxic-comments-monitoring"
+version = "0.1.0"
+source = { editable = "src/streamlit_monitoring" }
+dependencies = [
+    { name = "altair" },
+    { name = "boto3" },
+    { name = "pandas" },
+    { name = "plotly" },
+    { name = "pyyaml" },
+    { name = "scikit-learn" },
+    { name = "streamlit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "altair" },
+    { name = "boto3" },
+    { name = "pandas" },
+    { name = "plotly" },
+    { name = "pyyaml" },
+    { name = "scikit-learn" },
+    { name = "streamlit" },
+]
+
+[[package]]
+name = "toxic-comments-monorepo"
+version = "0.1.0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
 dev = [
     { name = "anyio" },
     { name = "httpx" },
@@ -2309,20 +2387,29 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
 ]
-frontend = [
-    { name = "plotly" },
-    { name = "streamlit" },
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "anyio" },
+    { name = "httpx" },
+    { name = "ipykernel" },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-mock" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
 ]
-monitoring = [
-    { name = "altair" },
-    { name = "boto3" },
-    { name = "pandas" },
-    { name = "plotly" },
-    { name = "pyyaml" },
-    { name = "scikit-learn" },
-    { name = "streamlit" },
-]
-training = [
+
+[[package]]
+name = "toxic-comments-training"
+version = "0.1.0"
+source = { editable = "src/sklearn_training" }
+dependencies = [
     { name = "joblib" },
     { name = "kagglehub" },
     { name = "mlflow" },
@@ -2334,43 +2421,14 @@ training = [
 
 [package.metadata]
 requires-dist = [
-    { name = "altair", marker = "extra == 'monitoring'" },
-    { name = "anyio", marker = "extra == 'dev'" },
-    { name = "boto3" },
-    { name = "boto3", marker = "extra == 'monitoring'" },
-    { name = "fastapi", marker = "extra == 'backend'" },
-    { name = "httpx", marker = "extra == 'dev'" },
-    { name = "ipykernel", marker = "extra == 'dev'" },
-    { name = "joblib", marker = "extra == 'backend'" },
-    { name = "joblib", marker = "extra == 'training'" },
-    { name = "kagglehub", marker = "extra == 'training'" },
-    { name = "mlflow", marker = "extra == 'training'" },
-    { name = "mypy", marker = "extra == 'dev'" },
-    { name = "pandas", marker = "extra == 'backend'" },
-    { name = "pandas", marker = "extra == 'monitoring'" },
-    { name = "pandas", marker = "extra == 'training'" },
-    { name = "plotly", marker = "extra == 'frontend'" },
-    { name = "plotly", marker = "extra == 'monitoring'" },
-    { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "psutil", marker = "extra == 'training'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'" },
-    { name = "pytest-mock", marker = "extra == 'dev'" },
-    { name = "pytest-timeout", marker = "extra == 'dev'" },
-    { name = "pytest-xdist", marker = "extra == 'dev'" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "pyyaml", marker = "extra == 'monitoring'" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "scikit-learn", marker = "extra == 'backend'" },
-    { name = "scikit-learn", marker = "extra == 'monitoring'" },
-    { name = "scikit-learn", marker = "extra == 'training'" },
-    { name = "streamlit", marker = "extra == 'frontend'" },
-    { name = "streamlit", marker = "extra == 'monitoring'" },
-    { name = "uvicorn", marker = "extra == 'backend'" },
-    { name = "xgboost", marker = "extra == 'training'" },
+    { name = "joblib" },
+    { name = "kagglehub" },
+    { name = "mlflow" },
+    { name = "pandas" },
+    { name = "psutil" },
+    { name = "scikit-learn" },
+    { name = "xgboost" },
 ]
-provides-extras = ["training", "backend", "frontend", "monitoring", "dev"]
 
 [[package]]
 name = "tqdm"

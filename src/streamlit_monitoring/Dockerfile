@@ -15,9 +15,11 @@ COPY ./src/streamlit_monitoring ./src/streamlit_monitoring
 COPY ./src/core ./src/core
 COPY ./config.yaml ./config.yaml
 COPY ./assets ./assets
-COPY pyproject.toml ./
 
-RUN uv pip install --system --no-cache -e ".[monitoring]"
+RUN uv pip install --system --no-cache -e ./src/streamlit_monitoring -e ./src/core
+
+# Add the current directory to Python path so 'src' module can be found
+ENV PYTHONPATH=/app:$PYTHONPATH
 
 EXPOSE 8502
 

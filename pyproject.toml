@@ -1,46 +1,11 @@
 [project]
-name = "toxic-comments"
+name = "toxic-comments-monorepo"
 version = "0.1.0"
-description = "Serving a toxic comment analysis model via FastAPI/Streamlit and deployed on AWS"
+description = "Workspace for toxic comment analysis MLOps project"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "python-dotenv",
-    "pyyaml",
-    "boto3",
-]
 
-[project.optional-dependencies]
-training = [
-    "scikit-learn",
-    "pandas",
-    "kagglehub",
-    "joblib",
-    "psutil",   
-    "mlflow",
-    "xgboost"
-]
-backend = [
-    "fastapi",
-    "uvicorn",
-    "scikit-learn",
-    "pandas",
-    "joblib",
-    "boto3",
-]
-frontend = [
-    "streamlit",
-    "plotly"
-]
-monitoring = [
-    "streamlit",
-    "pandas",
-    "altair",
-    "plotly",
-    "scikit-learn",
-    "pyyaml",
-    "boto3",
-]
+[dependency-groups]
 dev = [
     "pytest",
     "pytest-mock",
@@ -55,5 +20,11 @@ dev = [
     "httpx"
 ]
 
-[tool.setuptools]
-packages = ["src"]
+[tool.uv.workspace]
+members = [
+    "src/core",
+    "src/fastapi_backend", 
+    "src/sklearn_training",
+    "src/streamlit_frontend",
+    "src/streamlit_monitoring"
+]

@@ -1,0 +1,16 @@
+[project]
+name = "toxic-comments-frontend"
+version = "0.1.0"
+description = "Streamlit frontend for toxic comment analysis"
+requires-python = ">=3.12"
+dependencies = [
+    "streamlit",
+    "plotly",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+toxic-comments-core = { workspace = true }

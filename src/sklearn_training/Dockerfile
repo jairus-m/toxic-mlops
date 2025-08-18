@@ -14,9 +14,11 @@ COPY ./src/sklearn_training ./src/sklearn_training
 COPY ./src/core ./src/core
 COPY ./config.yaml ./config.yaml
 COPY ./assets ./assets
-COPY pyproject.toml ./
 
-# Install dependencies using uv that are specific to the training
-RUN uv pip install --system --no-cache ".[training]"
+# Install dependencies using uv
+RUN uv pip install --system --no-cache -e ./src/sklearn_training -e ./src/core
+
+# Add the current directory to Python path so 'src' module can be found
+ENV PYTHONPATH=/app:$PYTHONPATH
 
 CMD ["python", "-c", "from src.sklearn_training.train_model import main; main()"]
