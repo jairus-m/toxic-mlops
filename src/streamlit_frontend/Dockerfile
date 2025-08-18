@@ -14,9 +14,11 @@ COPY ./src/streamlit_frontend ./src/streamlit_frontend
 COPY ./src/core ./src/core
 COPY ./config.yaml ./config.yaml
 COPY ./assets ./assets
-COPY pyproject.toml ./
 
-RUN uv pip install --system --no-cache -e ".[frontend]"
+RUN uv pip install --system --no-cache -e ./src/streamlit_frontend -e ./src/core
+
+# Add the current directory to Python path so 'src' module can be found
+ENV PYTHONPATH=/app:$PYTHONPATH
 
 EXPOSE 8501
 

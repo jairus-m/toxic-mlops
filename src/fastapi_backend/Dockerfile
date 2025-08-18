@@ -15,10 +15,12 @@ COPY ./src/fastapi_backend ./src/fastapi_backend
 COPY ./src/core ./src/core
 COPY ./config.yaml ./config.yaml
 COPY ./assets ./assets
-COPY pyproject.toml ./
 
-# Install dependencies using uv that are specific to the backend
-RUN uv pip install --system --no-cache ".[backend]"
+# Install dependencies using uv
+RUN uv pip install --system --no-cache -e ./src/fastapi_backend -e ./src/core
+
+# Add the current directory to Python path so 'src' module can be found
+ENV PYTHONPATH=/app:$PYTHONPATH
 
 # Expose the port the app runs on
 EXPOSE 8000

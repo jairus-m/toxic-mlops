@@ -1,0 +1,20 @@
+[project]
+name = "toxic-comments-backend"
+version = "0.1.0"
+description = "FastAPI backend for toxic comment analysis"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "scikit-learn",
+    "pandas",
+    "joblib",
+    "boto3",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+toxic-comments-core = { workspace = true }

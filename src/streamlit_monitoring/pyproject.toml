@@ -1,0 +1,21 @@
+[project]
+name = "toxic-comments-monitoring"
+version = "0.1.0"
+description = "Streamlit monitoring dashboard for toxic comment analysis"
+requires-python = ">=3.12"
+dependencies = [
+    "streamlit",
+    "pandas",
+    "altair", 
+    "plotly",
+    "scikit-learn",
+    "pyyaml",
+    "boto3",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+toxic-comments-core = { workspace = true }
