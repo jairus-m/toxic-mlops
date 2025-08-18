@@ -22,7 +22,7 @@ tasks:
   dev:unit:
     desc: Runs the unit tests
     cmds:
-      - uv sync --all-extras
+      - uv sync --all-packages
       - uv run pytest
 
   prod:init:
