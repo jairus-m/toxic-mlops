@@ -8,15 +8,12 @@ This script supports two operational modes based on the `TRAIN_MODEL` env var:
 
 import os
 import json
-from pathlib import Path
 import joblib
 import psutil
 
 from src.core import (
     logger,
     config,
-    upload_to_s3,
-    download_from_s3,
     PROJECT_ROOT,
 )
 from src.sklearn_training.utils.data_loader import download_kaggle_dataset
@@ -90,17 +87,6 @@ def run_training_pipeline():
         "Starting Hybrid MLflow Multi-Model Toxic Comment Classification Training..."
     )
 
-    env = config.get("env", "development")
-    db_s3_key = config.get("mlflow", {}).get("db_s3_key")
-    local_db_path = Path("mlflow.db")
-    s3_bucket = config.get("s3", {}).get("bucket_name")
-
-    if env == "production" and db_s3_key and s3_bucket:
-        logger.info(
-            f"Attempting to download existing MLflow DB from s3://{s3_bucket}/{db_s3_key}"
-        )
-        download_from_s3(s3_bucket, db_s3_key, local_db_path)
-
     try:
         tracker = ExperimentTracker()
         experiment_id = tracker.setup_tracking()
@@ -133,11 +119,6 @@ def run_training_pipeline():
     except Exception as e:
         logger.error(f"An unexpected error occurred during training: {e}")
         raise
-    finally:
-        if env == "production" and db_s3_key and local_db_path.exists():
-            logger.info(f"Uploading MLflow DB to s3://{s3_bucket}/{db_s3_key}")
-            upload_to_s3(local_db_path, db_s3_key)
-            logger.info("MLflow DB upload complete.")
 
 
 def deploy_local_model():

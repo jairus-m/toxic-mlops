@@ -131,8 +131,28 @@ resource "aws_instance" "monitoring" {
   }
 }
 
+# MLflow Server EC2 instance
+resource "aws_instance" "mlflow_server" {
+  depends_on = [
+    aws_db_instance.mlflow_db
+  ]
+  instance_type = "t2.small"
+  ami           = local.amazon_linux_ami_id
+
+  vpc_security_group_ids = [aws_security_group.mlflow.id]
+  key_name               = aws_key_pair.deployer.key_name
+  iam_instance_profile   = "LabInstanceProfile"
+
+  tags = {
+    Name      = "MLflow Tracking Server Instance"
+    Project   = "Toxic-Comments-AWS"
+    ManagedBy = "Terraform"
+  }
+}
+
 module "ml_training_deployment" {
   source      = "./modules/docker_deployment"
+  depends_on  = [module.mlflow_deployment]
   instance_ip = aws_instance.ml_training.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
@@ -147,7 +167,7 @@ module "ml_training_deployment" {
 
   build_and_run_commands = [
     "sudo docker build -f src/sklearn_training/Dockerfile -t toxic-comments-training .",
-    "sudo docker run -d --name training ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.ml_training.id}-training ${join(" ", local.common_env_vars)} -e TRAIN_MODEL=${var.train_model} toxic-comments-training:latest"
+    "sudo docker run -d --name training ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.ml_training.id}-training ${join(" ", local.common_env_vars)} -e TRAIN_MODEL=${var.train_model} -e MLFLOW_SERVER_IP=${aws_instance.mlflow_server.public_ip} toxic-comments-training:latest"
   ]
 }
 
@@ -214,6 +234,22 @@ module "monitoring_deployment" {
   ]
 }
 
+module "mlflow_deployment" {
+  source      = "./modules/docker_deployment"
+  depends_on  = [aws_db_instance.mlflow_db]
+  instance_ip = aws_instance.mlflow_server.public_ip
+  private_key = tls_private_key.rsa.private_key_pem
+
+  # MLflow server doesn't need application files, just basic setup
+  file_sources = []
+
+  docker_setup_commands = local.docker_setup_commands
+
+  build_and_run_commands = [
+    "sudo docker run -d -p 5000:5000 --restart=always --name mlflow ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.mlflow_server.id}-mlflow ${join(" ", local.common_env_vars)} -e MLFLOW_BACKEND_STORE_URI=postgresql://mlflow:${var.mlflow_db_password}@${aws_db_instance.mlflow_db.endpoint}/mlflow python:3.11-slim sh -c 'pip install mlflow psycopg2-binary boto3 && mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri postgresql://mlflow:${var.mlflow_db_password}@${aws_db_instance.mlflow_db.endpoint}/mlflow --artifacts-destination s3://${aws_s3_bucket.toxic_comments_assets.bucket}/mlflow-artifacts --serve-artifacts'"
+  ]
+}
+
 # Hardcoded Amazon Linux 2 AMI ID for us-east-1
 # Using fixed AMI to avoid EC2:DescribeImages permission issues in learning environments
 locals {
@@ -230,6 +266,11 @@ output "frontend_url" {
 output "monitoring_url" {
   description = "HTTP URL for accessing the Streamlit monitoring."
   value       = "http://${aws_instance.monitoring.public_ip}:8502"
+}
+
+output "mlflow_server_url" {
+  description = "HTTP URL for accessing the MLflow tracking server."
+  value       = "http://${aws_instance.mlflow_server.public_ip}:5000"
 }
 
 output "ssh_command_backend" {

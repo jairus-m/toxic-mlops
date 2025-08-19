@@ -107,3 +107,67 @@ resource "aws_security_group" "monitoring" {
     ManagedBy = "Terraform"
   }
 }
+
+# This security group is for the MLflow tracking server instance.
+resource "aws_security_group" "mlflow" {
+  name        = "mlflow-server-sg"
+  description = "Allow HTTP traffic to MLflow tracking server"
+
+  # Allow incoming traffic on port 5000 (MLflow) from anywhere.
+  ingress {
+    from_port   = 5000
+    to_port     = 5000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Allow SSH access from anywhere (for deployment)
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Allow all outgoing traffic.
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name      = "MLflow Server SG"
+    Project   = "Toxic-Comments-AWS"
+    ManagedBy = "Terraform"
+  }
+}
+
+# This security group is for the MLflow PostgreSQL database.
+resource "aws_security_group" "mlflow_db" {
+  name        = "mlflow-db-sg"
+  description = "Allow PostgreSQL traffic from MLflow server"
+
+  # Allow incoming traffic on port 5432 (PostgreSQL) from MLflow server only.
+  ingress {
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.mlflow.id]
+  }
+
+  # Allow outgoing traffic (minimal required)
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name      = "MLflow Database SG"
+    Project   = "Toxic-Comments-AWS"
+    ManagedBy = "Terraform"
+  }
+}

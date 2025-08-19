@@ -16,8 +16,8 @@ development:
   prediction_logging:
     handler: "file"
     path: "assets/logs/prediction_logs.json"
-  mlflow: # All mlflow tracking artifacts/registry are stored locally
-    tracking_uri: "./assets/mlruns"
+  mlflow: # MLflow tracking via remote server
+    tracking_uri: "http://mlflow-server:5000"
     experiment_name: "toxic-comments-classification"
 
 production:
@@ -28,8 +28,7 @@ production:
   prediction_logging:
     handler: "dynamodb"
     table_name: "prediction_logs"
-  mlflow: # All mlflow tracking artifacts/registry are stored in S3
-    tracking_uri: "sqlite:///mlflow.db"
-    mlruns: "mlruns"
+  mlflow: # MLflow tracking via remote server with PostgreSQL backend
+    tracking_uri: "http://MLFLOW_SERVER_IP:5000"  # Will be replaced with actual IP in deployment
     experiment_name: "toxic-comments-classification-prod"
-    db_s3_key: "mlflow-db/mlflow.db"
+    artifact_root: "s3://BUCKET_NAME/mlflow-artifacts"  # Will be replaced with actual bucket name

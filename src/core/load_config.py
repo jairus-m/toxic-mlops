@@ -45,6 +45,22 @@ def load_config() -> Dict[str, Any]:
 
         config["env"] = env
         config["project_root"] = PROJECT_ROOT
+
+        # Replace placeholders with environment variables in production
+        if env == "production":
+            mlflow_server_ip = os.getenv("MLFLOW_SERVER_IP")
+            s3_bucket_name = os.getenv("S3_BUCKET_NAME")
+
+            if mlflow_server_ip and "mlflow" in config:
+                config["mlflow"]["tracking_uri"] = config["mlflow"][
+                    "tracking_uri"
+                ].replace("MLFLOW_SERVER_IP", mlflow_server_ip)
+
+            if s3_bucket_name and "mlflow" in config:
+                config["mlflow"]["artifact_root"] = config["mlflow"][
+                    "artifact_root"
+                ].replace("BUCKET_NAME", s3_bucket_name)
+
         return config
     except FileNotFoundError:
         logging.critical(f"Config file not found at {config_path}")

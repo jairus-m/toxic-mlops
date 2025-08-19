@@ -34,3 +34,10 @@ variable "s3_bucket" {
   type        = string
   default     = "toxic-comments-s3"
 }
+
+variable "mlflow_db_password" {
+  description = "Password for the MLflow PostgreSQL database"
+  type        = string
+  sensitive   = true
+  default     = "mlflow123" # Pls dont hack me
+}
