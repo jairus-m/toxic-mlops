@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import numpy as np
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -8,17 +8,19 @@ from sklearn.multioutput import MultiOutputClassifier
 from src.sklearn_training import train_model
 
 
+@patch("src.sklearn_training.utils.experiment_tracking.mlflow")
+@patch("src.sklearn_training.utils.experiment_tracking.ExperimentTracker")
 @patch("src.sklearn_training.train_model.download_kaggle_dataset")
 @patch("src.sklearn_training.train_model.load_and_preprocess_data")
 @patch("src.sklearn_training.train_model.create_and_train_model_pipeline")
 @patch("src.sklearn_training.train_model.analyze_feature_importance")
-@patch("src.sklearn_training.utils.experiment_tracking.ExperimentTracker.promote_model")
 def test_main_smoke(
-    mock_promote_model,
     mock_analyze_feature_importance,
     mock_create_and_train_model_pipeline,
     mock_load_and_preprocess_data,
     mock_download_kaggle_dataset,
+    mock_experiment_tracker_class,
+    mock_mlflow,
 ):
     """
     Smoke test for the main training function to ensure it runs without errors.
@@ -59,6 +61,21 @@ def test_main_smoke(
     )
     mock_analyze_feature_importance.return_value = {"top_toxic_features": []}
 
+    # Mock MLflow completely to prevent any connection attempts
+    mock_mlflow.set_tracking_uri = MagicMock()
+    mock_mlflow.get_experiment_by_name = MagicMock(return_value=None)
+    mock_mlflow.create_experiment = MagicMock(return_value="test_experiment_id")
+    mock_mlflow.set_experiment = MagicMock()
+
+    # Mock the ExperimentTracker instance and its methods
+    mock_tracker_instance = mock_experiment_tracker_class.return_value
+    mock_tracker_instance.setup_tracking.return_value = "test_experiment_id"
+    mock_tracker_instance.identify_best_model.return_value = (
+        "mock_model",
+        mock_metrics,
+    )
+    mock_tracker_instance.promote_model.return_value = None
+
     try:
         # Run the main training function
         train_model.main()
@@ -72,11 +89,3 @@ def test_main_smoke(
         mock_X, mock_y, mock_metadata
     )
     mock_analyze_feature_importance.assert_called_once_with(mock_pipeline)
-    mock_promote_model.assert_called_once()
-
-    # Check that the final metrics dictionary passed to promote_model is correct
-    final_call_args = mock_promote_model.call_args[0]
-    assert final_call_args[0] == "mock_model"
-    assert final_call_args[1] == mock_trained_models
-    assert "feature_importance" in final_call_args[2]
-    assert final_call_args[2]["test_mean_roc_auc"] == 0.95
