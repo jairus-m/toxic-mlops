@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Tuple, Any
-import shutil
 
 import mlflow
 import mlflow.sklearn
@@ -240,38 +239,8 @@ class ExperimentTracker:
                 logger.info(f"Removing temporary metadata file: {metadata_local_path}")
                 os.remove(metadata_local_path)
 
-            # Upload mlruns to S3 - this is behaviour specific to production
-            # may need to refactor this
-            mlruns_path = config["mlflow"]["mlruns"]
-            temp_mlflow_dir = PROJECT_ROOT / "assets"
-            temp_mlflow_dir.mkdir(exist_ok=True)
-            mlruns_local_path = temp_mlflow_dir / Path(mlruns_path).name
-
-            # Copy mlruns directory to temporary location
-            mlflow_source = PROJECT_ROOT / mlruns_path
-            if mlflow_source.exists():
-                logger.info(
-                    f"Copying MLflow runs from {mlflow_source} to {mlruns_local_path}"
-                )
-                shutil.copytree(mlflow_source, mlruns_local_path, dirs_exist_ok=True)
-
-                # Upload each file in the mlruns directory
-                for root, _, files in os.walk(mlruns_local_path):
-                    for file in files:
-                        file_path = Path(root) / file
-                        relative_path = file_path.relative_to(temp_mlflow_dir)
-                        s3_file_key = str(relative_path)
-
-                        if upload_to_s3(file_path, s3_file_key):
-                            logger.debug(f"Successfully uploaded {file_path} to S3")
-                        else:
-                            logger.error(f"Failed to upload {file_path} to S3")
-
-                # Clean up temporary directory
-                logger.info(f"Removing temporary mlruns directory: {mlruns_local_path}")
-                shutil.rmtree(mlruns_local_path)
-            else:
-                logger.warning(f"MLflow runs directory not found at {mlflow_source}")
+            # MLflow artifacts are now managed by the remote MLflow server
+            logger.info("MLflow experiment data is managed by remote MLflow server")
 
         else:
             # In development, save directly to local paths
@@ -292,6 +261,58 @@ class ExperimentTracker:
                 json.dump(complete_metadata, f, indent=2)
             logger.info("Metadata saved successfully!")
 
+        # Register the best model in MLflow Model Registry
+        if "run_id" in best_metrics:
+            self._register_best_model(
+                best_metrics["run_id"], best_model_name, best_metrics
+            )
+
+    def _register_best_model(
+        self, run_id: str, model_name: str, metrics: Dict[str, Any]
+    ) -> None:
+        """
+        Register the best model in MLflow Model Registry.
+
+        Args:
+            run_id: MLflow run ID containing the model
+            model_name: Name of the best model
+            metrics: Model performance metrics
+        """
+        try:
+            model_uri = f"runs:/{run_id}/model"
+            registry_model_name = "toxic-comment-classifier"
+
+            logger.info(f"Registering best model {model_name} from run {run_id}")
+            model_version = mlflow.register_model(
+                model_uri=model_uri,
+                name=registry_model_name,
+                tags={
+                    "algorithm": model_name,
+                    "training_run": run_id,
+                    "mean_auc": str(metrics.get("test_mean_roc_auc", 0)),
+                },
+            )
+            logger.info(
+                f"✅ Best model registered as {registry_model_name} version {model_version.version}"
+            )
+        except Exception as e:
+            logger.warning(f"Model registration failed: {e}")
+
+    def _get_user_friendly_url(self, mlflow_url: str) -> str:
+        """
+        Convert internal MLflow URLs to user-friendly localhost URLs for development.
+
+        Args:
+            mlflow_url: Internal MLflow URL (e.g., http://mlflow-server:5000/...)
+
+        Returns:
+            str: User-friendly URL (e.g., http://localhost:5000/...)
+        """
+        env = config.get("env", "development")
+        if env == "development":
+            return mlflow_url.replace("mlflow-server:5000", "localhost:5000")
+        return mlflow_url
+
     def log_training_summary(
         self, trained_models: Dict[str, Any], best_metrics: Dict[str, Any]
     ) -> None:
@@ -302,13 +323,27 @@ class ExperimentTracker:
             trained_models: Dictionary of all trained models
             best_metrics: Metrics of the best performing model
         """
-        with mlflow.start_run(run_name="training_summary"):
+        with mlflow.start_run(run_name="training_summary") as run:
             mlflow.log_param("total_models_trained", len(trained_models))
             mlflow.log_param("best_model", best_metrics["model_name"])
             mlflow.log_param("best_algorithm", best_metrics["algorithm"])
             mlflow.log_metric("best_model_auc", best_metrics["test_mean_roc_auc"])
             mlflow.log_metric(
                 "best_model_accuracy", best_metrics["test_exact_match_accuracy"]
+            )
+
+            # Log user-friendly URLs
+            run_url = f"{self.tracking_uri}/#/experiments/{self.experiment_id}/runs/{run.info.run_id}"
+            experiment_url = f"{self.tracking_uri}/#/experiments/{self.experiment_id}"
+
+            user_friendly_run_url = self._get_user_friendly_url(run_url)
+            user_friendly_experiment_url = self._get_user_friendly_url(experiment_url)
+
+            logger.info("🎯 Training Summary Complete!")
+            logger.info(f"📊 View training summary run: {user_friendly_run_url}")
+            logger.info(f"🧪 View all experiments: {user_friendly_experiment_url}")
+            logger.info(
+                f"🏆 Best model: {best_metrics['model_name']} (AUC: {best_metrics['test_mean_roc_auc']:.4f})"
             )
 
     def register_model(
@@ -382,22 +417,34 @@ def register_model_in_mlflow(pipeline: Pipeline, model_name: str) -> str:
     Returns:
         str: MLflow run ID
     """
-    # Log model and wait for it to complete
+    # Use standard MLflow artifact path convention
     model_info = mlflow.sklearn.log_model(
         pipeline,
-        "model",
+        "model",  # Standard MLflow artifact path
         await_registration_for=60,  # Wait up to 60 seconds for artifact logging
     )
 
     # Register model using the returned model URI
     registry_model_name = "toxic-comment-classifier"
-    logger.info(
-        f"Registering model {model_name} from run {mlflow.active_run().info.run_id}"
-    )
-    mlflow.register_model(model_uri=model_info.model_uri, name=registry_model_name)
-    logger.info(f"Model registered successfully as {registry_model_name}")
+    run_id = mlflow.active_run().info.run_id
+    logger.info(f"Registering model {model_name} from run {run_id}")
+    logger.info(f"Model URI: {model_info.model_uri}")
 
-    return mlflow.active_run().info.run_id
+    try:
+        model_version = mlflow.register_model(
+            model_uri=model_info.model_uri,
+            name=registry_model_name,
+            tags={"algorithm": model_name, "training_run": run_id},
+        )
+        logger.info(
+            f"Model registered successfully as {registry_model_name} version {model_version.version}"
+        )
+    except Exception as e:
+        logger.warning(
+            f"Model registration failed: {e}. Model artifacts are still logged."
+        )
+
+    return run_id
 
 
 def train_single_model(
@@ -473,7 +520,46 @@ def train_single_model(
         mlflow.log_metric("mean_auc", metrics["test_mean_roc_auc"])
         mlflow.log_metric("training_accuracy", metrics["training_accuracy"])
 
-        run_id = register_model_in_mlflow(pipeline, model_name)
+        # Create model signature and input example for proper artifact metadata
+        from mlflow.models.signature import infer_signature
+
+        # Create input example (small sample of original text data)
+        input_example = X_train[:5]  # X_train contains original text strings
+
+        # Get model predictions for signature using the pipeline (which expects text)
+        predictions = pipeline.predict(input_example)
+
+        # Infer model signature using original text input
+        signature = infer_signature(input_example, predictions)
+
+        # Log model with complete metadata and detailed logging
+        logger.info(
+            f"Starting to log model {model_name} with signature and input example..."
+        )
+        logger.info(f"MLflow tracking URI: {mlflow.get_tracking_uri()}")
+        logger.info(f"Active run artifact URI: {mlflow.get_artifact_uri()}")
+
+        try:
+            mlflow.sklearn.log_model(
+                sk_model=pipeline,
+                artifact_path="model",
+                signature=signature,
+                input_example=input_example,
+                await_registration_for=60,
+            )
+            run_id = mlflow.active_run().info.run_id
+            logger.info(
+                f"✅ Model {model_name} successfully logged to MLflow run {run_id}"
+            )
+            logger.info(
+                f"Expected artifact location: {mlflow.get_artifact_uri()}/model"
+            )
+        except Exception as e:
+            logger.error(f"❌ Failed to log model {model_name}: {e}")
+            import traceback
+
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise
 
         logger.info(f"{model_name} results:")
         logger.info(f"  Training accuracy (mean): {metrics['training_accuracy']:.4f}")
