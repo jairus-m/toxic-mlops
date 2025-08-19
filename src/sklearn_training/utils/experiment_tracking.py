@@ -19,11 +19,27 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.multioutput import MultiOutputClassifier
 from xgboost import XGBClassifier
+from mlflow.models.signature import infer_signature
 
 from src.core import logger, config, PROJECT_ROOT, upload_to_s3
 
 
 TARGET_COLS = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]
+
+
+def get_display_uri(tracking_uri: str) -> str:
+    """
+    Convert internal Docker URI to localhost for display purposes.
+    Args:
+        tracking_uri: Internal MLflow tracking URI (e.g., http://mlflow-server:5000)
+
+    Returns:
+        str: Display-friendly URI (e.g., http://localhost:5000)
+    """
+    env = config.get("env", "development")
+    if env == "development":
+        return tracking_uri.replace("mlflow-server:5000", "localhost:5000")
+    return tracking_uri
 
 
 def get_model_configurations() -> Dict[str, Dict[str, Any]]:
@@ -112,7 +128,10 @@ class ExperimentTracker:
 
         self.tracking_uri = mlflow_config["tracking_uri"]
         mlflow.set_tracking_uri(self.tracking_uri)
-        logger.info(f"MLflow tracking URI set to: {self.tracking_uri}")
+        logger.info(f"MLflow tracking URI: {self.tracking_uri}")
+
+        display_uri = get_display_uri(self.tracking_uri)
+        logger.info(f"View MLflow UI at: {display_uri}")
 
         self.experiment_name = mlflow_config["experiment_name"]
         try:
@@ -127,6 +146,10 @@ class ExperimentTracker:
                 logger.info(
                     f"Using existing MLflow experiment: {self.experiment_name} (ID: {self.experiment_id})"
                 )
+
+            experiment_url = f"{self.tracking_uri}/#/experiments/{self.experiment_id}"
+            display_experiment_url = get_display_uri(experiment_url)
+            logger.info(f"View experiment at: {display_experiment_url}")
         except Exception as e:
             logger.warning(
                 f"Error setting up experiment: {e}. Using default experiment."
@@ -298,21 +321,6 @@ class ExperimentTracker:
         except Exception as e:
             logger.warning(f"Model registration failed: {e}")
 
-    def _get_user_friendly_url(self, mlflow_url: str) -> str:
-        """
-        Convert internal MLflow URLs to user-friendly localhost URLs for development.
-
-        Args:
-            mlflow_url: Internal MLflow URL (e.g., http://mlflow-server:5000/...)
-
-        Returns:
-            str: User-friendly URL (e.g., http://localhost:5000/...)
-        """
-        env = config.get("env", "development")
-        if env == "development":
-            return mlflow_url.replace("mlflow-server:5000", "localhost:5000")
-        return mlflow_url
-
     def log_training_summary(
         self, trained_models: Dict[str, Any], best_metrics: Dict[str, Any]
     ) -> None:
@@ -336,14 +344,17 @@ class ExperimentTracker:
             run_url = f"{self.tracking_uri}/#/experiments/{self.experiment_id}/runs/{run.info.run_id}"
             experiment_url = f"{self.tracking_uri}/#/experiments/{self.experiment_id}"
 
-            user_friendly_run_url = self._get_user_friendly_url(run_url)
-            user_friendly_experiment_url = self._get_user_friendly_url(experiment_url)
+            user_friendly_run_url = get_display_uri(run_url)
+            user_friendly_experiment_url = get_display_uri(experiment_url)
 
             logger.info("🎯 Training Summary Complete!")
             logger.info(f"📊 View training summary run: {user_friendly_run_url}")
             logger.info(f"🧪 View all experiments: {user_friendly_experiment_url}")
             logger.info(
                 f"🏆 Best model: {best_metrics['model_name']} (AUC: {best_metrics['test_mean_roc_auc']:.4f})"
+            )
+            logger.info(
+                "ℹ️  Note: MLflow may also log internal Docker URLs (mlflow-server:5000) - use the localhost URLs above for browser access"
             )
 
     def register_model(
@@ -515,28 +526,23 @@ def train_single_model(
                 f"{col}_auc", metrics["per_label_metrics"][col]["roc_auc"]
             )
 
-        # Log summary metrics
         mlflow.log_metric("exact_match_accuracy", metrics["test_exact_match_accuracy"])
         mlflow.log_metric("mean_auc", metrics["test_mean_roc_auc"])
         mlflow.log_metric("training_accuracy", metrics["training_accuracy"])
 
         # Create model signature and input example for proper artifact metadata
-        from mlflow.models.signature import infer_signature
-
-        # Create input example (small sample of original text data)
         input_example = X_train[:5]  # X_train contains original text strings
-
-        # Get model predictions for signature using the pipeline (which expects text)
         predictions = pipeline.predict(input_example)
 
-        # Infer model signature using original text input
         signature = infer_signature(input_example, predictions)
 
-        # Log model with complete metadata and detailed logging
         logger.info(
             f"Starting to log model {model_name} with signature and input example..."
         )
         logger.info(f"MLflow tracking URI: {mlflow.get_tracking_uri()}")
+
+        display_uri = get_display_uri(mlflow.get_tracking_uri())
+        logger.info(f"View MLflow UI at: {display_uri}")
         logger.info(f"Active run artifact URI: {mlflow.get_artifact_uri()}")
 
         try:
@@ -554,6 +560,10 @@ def train_single_model(
             logger.info(
                 f"Expected artifact location: {mlflow.get_artifact_uri()}/model"
             )
+
+            run_url = f"{mlflow.get_tracking_uri()}/#/experiments/{mlflow.active_run().info.experiment_id}/runs/{run_id}"
+            display_run_url = get_display_uri(run_url)
+            logger.info(f"View run at: {display_run_url}")
         except Exception as e:
             logger.error(f"❌ Failed to log model {model_name}: {e}")
             import traceback
@@ -568,7 +578,6 @@ def train_single_model(
         )
         logger.info(f"  Test mean ROC-AUC: {metrics['test_mean_roc_auc']:.4f}")
 
-        # Create metrics dict in expected format
         model_metrics = {
             "training_accuracy": metrics["training_accuracy"],
             "test_exact_match_accuracy": metrics["test_exact_match_accuracy"],
