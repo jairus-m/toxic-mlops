@@ -21,10 +21,12 @@ from sklearn.multioutput import MultiOutputClassifier
 from xgboost import XGBClassifier
 from mlflow.models.signature import infer_signature
 
-from src.core import logger, config, PROJECT_ROOT, upload_to_s3
-
-
-TARGET_COLS = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]
+from src.core import logger, config, upload_to_s3
+from sklearn_training.utils.constants import (
+    TARGET_COLS,
+    TFIDF_MAX_FEATURES,
+    TFIDF_NGRAM_RANGE,
+)
 
 
 def get_display_uri(tracking_uri: str) -> str:
@@ -234,7 +236,15 @@ class ExperimentTracker:
         logger.info(f"Promoting {best_model_name} to stable deployment path...")
 
         if env == "production":
-            temp_dir = PROJECT_ROOT / "assets/models"
+            # Use config-based path for temp directory
+            if "model_directories" in config:
+                temp_dir_str = config["model_directories"].get("temp", "assets/models")
+                # Handle reference to base directory
+                if temp_dir_str == "base":
+                    temp_dir_str = config["model_directories"]["base"]
+                temp_dir = config["project_root"] / temp_dir_str
+            else:
+                temp_dir = config["project_root"] / "assets/models"
             temp_dir.mkdir(exist_ok=True)
 
             model_local_path = temp_dir / Path(model_path).name
@@ -267,7 +277,7 @@ class ExperimentTracker:
 
         else:
             # In development, save directly to local paths
-            model_local_path = PROJECT_ROOT / model_path
+            model_local_path = config["project_root"] / model_path
             model_local_path.parent.mkdir(parents=True, exist_ok=True)
 
             logger.info(f"Saving best model locally to {model_local_path}...")
@@ -278,7 +288,7 @@ class ExperimentTracker:
             )
 
             # Save metadata
-            metadata_local_path = PROJECT_ROOT / model_metadata_path
+            metadata_local_path = config["project_root"] / model_metadata_path
             logger.info(f"Saving metadata locally to {metadata_local_path}...")
             with open(metadata_local_path, "w") as f:
                 json.dump(complete_metadata, f, indent=2)
@@ -484,7 +494,7 @@ def train_single_model(
     Returns:
         tuple: (pipeline, metrics_dict) or (None, None) if training failed
     """
-    from .model_evaluation import evaluate_model  # Import here to avoid circular import
+    from .model_evaluation import evaluate_model
 
     logger.info(f"Training {model_name}...")
 
@@ -493,8 +503,8 @@ def train_single_model(
         mlflow.log_params(model_config["params"])
         mlflow.log_params(
             {
-                "tfidf_max_features": 10000,  # TFIDF_MAX_FEATURES constant
-                "tfidf_ngram_range": str((1, 2)),  # TFIDF_NGRAM_RANGE constant
+                "tfidf_max_features": TFIDF_MAX_FEATURES,
+                "tfidf_ngram_range": str(TFIDF_NGRAM_RANGE),
                 "train_size": X_train.shape[0],
                 "test_size": X_test.shape[0],
                 "vocabulary_size": len(vectorizer.vocabulary_),

@@ -14,7 +14,6 @@ import psutil
 from src.core import (
     logger,
     config,
-    PROJECT_ROOT,
 )
 from src.sklearn_training.utils.data_loader import download_kaggle_dataset
 from src.sklearn_training.utils.experiment_tracking import (
@@ -127,8 +126,9 @@ def deploy_local_model():
     """
     logger.info("Starting local model deployment process...")
 
-    model_path = PROJECT_ROOT / "assets/models/toxic_model.pkl"
-    metadata_path = PROJECT_ROOT / "assets/models/toxic_model_metadata.json"
+    # Use config-based paths for model deployment
+    model_path = config["project_root"] / config["paths"]["model"]
+    metadata_path = config["project_root"] / config["paths"]["model_metadata"]
 
     if not model_path.exists() or not metadata_path.exists():
         logger.error(

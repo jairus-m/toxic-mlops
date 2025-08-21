@@ -4,6 +4,15 @@ default:
   main_logging:
     handler: "file"
     path: "assets/logs/app.log"
+  log_directories:
+    base: "assets/logs"
+    temp_prediction: "assets/logs/temp_prediction_logs.json"
+    fallback_prediction: "assets/logs/prediction_logs_fallback.json"
+  model_directories:
+    base: "assets/models"
+    temp: "base"
+  data_directories:
+    base: "assets/data"
   kaggle:
     dataset_path: "julian3833/jigsaw-toxic-comment-classification-challenge"
     dataset_name: "train.csv"
