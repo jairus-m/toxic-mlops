@@ -64,7 +64,7 @@
   - **Files**: `src/sklearn_training/utils/experiment_tracking.py`
   - **Details**: Logs Git commit hashes, hyperparameters, metrics, data versions
 
-- [x] **Comprehensive Logging**
+- [x] **Logging**
   - **Parameters**: Model type, hyperparameters, feature engineering settings
   - **Metrics**: ROC-AUC per label, precision, recall, F1-scores
   - **Artifacts**: Model files, preprocessing pipelines, feature extractors
@@ -81,8 +81,8 @@
 ## Phase 2: Backend API and Database Integration
 
 ### 2.1 FastAPI Backend
-- [x] **Robust FastAPI Application**
-  - **Implementation**: Production-ready API with comprehensive endpoints
+- [x] **FastAPI Application**
+  - **Implementation**: API with toxic sentiment prediction, feedback, moderation, and example endpoints
   - **Files**: `src/fastapi_backend/main.py`
   - **Endpoints**:
     - `/predict` - Multi-label toxicity classification
@@ -139,14 +139,14 @@
 
 ## Phase 4: Testing and CI/CD Automation
 
-### 4.1 Comprehensive Testing
+### 4.1 Testing
 - [x] **Unit Tests**
   - **Implementation**: Isolated function testing with comprehensive mocking framework
-  - **Files**: `tests/test_sklearn_training.py`, `tests/test_streamlit_frontend.py`, `tests/test_streamlit_monitoring.py`
+  - **Files**: `tests/`
 
 - [x] **Integration Tests**
   - **Implementation**: Full API endpoint testing with realistic request/response cycles
-  - **Files**: `tests/test_fastapi_backend.py`, `tests/conftest.py`
+  - **Files**: `tests/`
 
 
 ### 4.2 CI/CD Pipeline
@@ -222,8 +222,8 @@
   - **Files**: `config.yaml`, `src/core/load_config.py`
   - **Environments**: Development (local files) and Production (cloud resources)
 
-- [x] **Advanced Monitoring**
-  - **Implementation**: CloudWatch integration for centralized logging
+- [x] **Monitoring**
+  - **Implementation**: CloudWatch integration for centralized and exposed logging from EC2 instances
   - **Files**: `infrastructure/cloudwatch.tf`
   - **Features**: Service logs, error tracking, performance monitoring
 
