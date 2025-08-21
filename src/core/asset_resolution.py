@@ -1,9 +1,9 @@
 from pathlib import Path
 import os
 import sys
-from .load_config import PROJECT_ROOT, config
+from .load_config import config
 from .aws import download_from_s3
-from .logging_config import logger
+from .logger import logger
 
 
 def get_asset_path(asset_key: str) -> Path:
@@ -29,13 +29,13 @@ def get_asset_path(asset_key: str) -> Path:
             logger.critical("S3 bucket name or key is not configured in environment.")
             sys.exit(1)
 
-        local_path = PROJECT_ROOT / "assets" / Path(s3_key).name
+        local_path = config["project_root"] / "assets" / Path(s3_key).name
         if not download_from_s3(bucket, s3_key, local_path):
             logger.critical(f"Failed to retrieve required asset {s3_key} from S3.")
             sys.exit(1)
         return local_path
     else:
-        dev_path = PROJECT_ROOT / path_info
+        dev_path = config["project_root"] / path_info
         if not dev_path.exists():
             logger.critical(f"Asset '{asset_key}' not found at local path: {dev_path}")
             sys.exit(1)
