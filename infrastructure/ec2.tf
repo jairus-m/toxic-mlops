@@ -136,7 +136,7 @@ resource "aws_instance" "mlflow_server" {
   depends_on = [
     aws_db_instance.mlflow_db
   ]
-  instance_type = "t2.small"
+  instance_type = "t2.micro"
   ami           = local.amazon_linux_ami_id
 
   vpc_security_group_ids = [aws_security_group.mlflow.id]
