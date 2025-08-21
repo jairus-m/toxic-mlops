@@ -1,6 +1,10 @@
 # Toxic Comment Analysis - AWS Deployment
 
-> **Note**: This project was heavily influenced and informed by the incremental learnings and implementations of my mlops project monorepo, [mlops-du](https://github.com/jairus-m/mlops-du). The architectural patterns, deployment strategies, and MLOps best practices demonstrated in this repository build upon the foundational work and lessons learned from that educational project.
+> **Note**: This project was heavily influenced and informed by the incremental learnings and implementations of my mlops project monorepo, [mlops-du](https://github.com/jairus-m/mlops-du). The architectural patterns, deployment strategies, and MLOps best practices demonstrated in this repository build upon the foundational work and lessons learned.
+
+In addition, to view the final project rubric and screenshots of the AWS deployment view:
+- `assets/docs/RUBRIC.md`
+- `assets/docs/SCREENSHOTS.md`
 
 ## Project Dependencies
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
@@ -43,84 +47,6 @@ This project is structured as a multi-package monorepo using [uv workspaces](htt
 
 <img src="assets/images/architecture.png" width="1000"/>
 
-### Filetree
-```bash
-.
-├── assets
-│   ├── data    # Local data stored/staged here
-│   ├── images  # Documentation images
-│   ├── logs    # App logs 
-│   ├── mlflow  # Local MLflow artifacts and database
-│   └── models  # Local model stored/staged here
-├── config.yaml # Sets env-aware variables/paths
-├── docker-compose.yml # Docker services configuration
-├── pyproject.toml # Dependencies and uv workspace configuration
-├── README.md
-├── src
-│   ├── core    # Shared utilities
-│   │   ├── __init__.py
-│   │   ├── asset_resolution.py
-│   │   ├── aws.py
-│   │   ├── base_logger.py
-│   │   ├── load_config.py
-│   │   └── logging_config.py
-│   ├── fastapi_backend # Backend service
-│   │   ├── Dockerfile
-│   │   ├── __init__.py
-│   │   ├── main.py
-│   │   └── utils
-│   │       ├── __init__.py
-│   │       ├── middleware.py
-│   │       ├── model_loader.py
-│   │       ├── moderation.py
-│   │       └── schemas.py
-│   ├── sklearn_training # ML training service
-│   │   ├── Dockerfile
-│   │   ├── __init__.py
-│   │   ├── train_model.py
-│   │   └── utils
-│   │       ├── __init__.py
-│   │       ├── data_loader.py
-│   │       ├── experiment_tracking.py
-│   │       ├── feature_engineering.py
-│   │       ├── memory.py
-│   │       ├── model_evaluation.py
-│   │       ├── preprocess.py
-│   │       └── validation.py
-│   ├── streamlit_frontend # Frontend service
-│   │   ├── Dockerfile
-│   │   ├── __init__.py
-│   │   └── app.py
-│   └── streamlit_monitoring # Monitoring service
-│       ├── Dockerfile
-│       ├── __init__.py
-│       ├── app.py
-│       └── utils
-│           ├── __init__.py
-│           └── data_loader.py
-├── infrastructure
-│   ├── cloudwatch.tf # CloudWatch config
-│   ├── dynamodb.tf  # DynamoDB config
-│   ├── ec2.tf       # EC2 config
-│   ├── modules      # Re-usable modules for Docker deployment
-│   │   └── docker_deployment
-│   │       ├── main.tf
-│   │       └── variables.tf
-│   ├── providers.tf
-│   ├── rds.tf       # RDS PostgreSQL config
-│   ├── s3.tf        # S3 config
-│   ├── security_groups.tf # Security group config
-│   └── variables.tf # Expected vars
-├── tests
-│   ├── __init__.py
-│   ├── conftest.py
-│   ├── test_fastapi_backend.py
-│   ├── test_sklearn_training.py
-│   ├── test_streamlit_frontend.py
-│   └── test_streamlit_monitoring.py
-└── Taskfile.yml    # Task automation commands
-```
-
 Architecture Overview:
 - **MLflow Server (EC2)**: Experiment tracking and model registry with PostgreSQL backend
 - **ML Training Service (EC2)**: Downloads data, trains model, logs to MLflow, uploads to S3
@@ -162,7 +88,7 @@ development:
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed on your local machine.
 
 ### Configuration for Local Deployment
-For running this project on your local machine, no configuration is needed. The application will use your local files instead of S3 for storage and your CPU for computation.
+For running this project on your local machine, no configuration is needed. The application will use your local files instead of AWS services for storage and your CPU for computation.
 
 ### Local Development with Docker Compose
 For a streamlined and consistent development experience that mirrors the production environment locally, you can use Docker Compose and the custom `task` commands.
