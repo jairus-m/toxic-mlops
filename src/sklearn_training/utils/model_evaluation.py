@@ -10,11 +10,9 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 
 from src.core import logger
-from src.sklearn_training.utils.experiment_tracking import TARGET_COLS
+from sklearn_training.utils.constants import TARGET_COLS, BATCH_SIZE
 from src.sklearn_training.utils.preprocess import process_in_batches
 from src.sklearn_training.utils.memory import clean_memory
-
-BATCH_SIZE = 2000
 
 
 def evaluate_model(

@@ -1,25 +1,27 @@
+"""Standalone AWS utilities to avoid circular imports."""
+
 from botocore.exceptions import ClientError
 import os
 from pathlib import Path
 import boto3
-from .logger import setup_logger
-from .load_config import config
-
-# Create AWS-specific logger
-logger = setup_logger("aws", config)
+import logging
 
 
-def upload_to_s3(local_path: Path, s3_key: str) -> bool:
+def upload_to_s3(local_path: Path, s3_key: str, logger: logging.Logger = None) -> bool:
     """
     Uploads a local file to an S3 bucket.
 
     Args:
         local_path (Path): The path to the local file to upload.
         s3_key (str): The destination key (path) in the S3 bucket.
+        logger (logging.Logger): Optional logger instance.
 
     Returns:
         bool: True if upload was successful, False otherwise.
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
     bucket = os.getenv("S3_BUCKET_NAME")
     if not bucket:
         logger.critical("S3_BUCKET_NAME is not configured. Cannot upload.")
@@ -40,7 +42,11 @@ def upload_to_s3(local_path: Path, s3_key: str) -> bool:
 
 
 def download_from_s3(
-    bucket: str, key: str, local_path: Path, needs_full_download: bool = False
+    bucket: str,
+    key: str,
+    local_path: Path,
+    needs_full_download: bool = False,
+    logger: logging.Logger = None,
 ) -> bool:
     """
     Downloads a file from an S3 bucket to a local path.
@@ -50,10 +56,14 @@ def download_from_s3(
         key (str): The key (path) of the object in the bucket.
         local_path (Path): The local destination path.
         needs_full_download (bool): If True, the file will be downloaded even if it already exists locally.
+        logger (logging.Logger): Optional logger instance.
 
     Returns:
         bool: True if download was successful or file already exists, False otherwise.
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
     if local_path.exists() and needs_full_download is False:
         logger.info(f"File {local_path} already exists locally. Skipping S3 download.")
         return True
@@ -69,7 +79,7 @@ def download_from_s3(
             logger.warning(
                 f"S3 object not found: s3://{bucket}/{key}. A new DB will be created."
             )
-            return True  # Not an error, the file just doesn't exist yet
+            return True  # Not an error, file doesn't exist yet
         else:
             logger.error(f"Error downloading from S3: {e}")
         return False

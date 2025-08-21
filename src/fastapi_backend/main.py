@@ -314,15 +314,15 @@ async def model_stats(model=Depends(get_model)) -> dict:
         try:
             import json
             from pathlib import Path
-            from src.core import PROJECT_ROOT, config
+            from src.core import config
 
             model_path = config["paths"]["model"]
             metadata_path = (
                 Path(model_path).parent / f"{Path(model_path).stem}_metadata.json"
             )
 
-            if (PROJECT_ROOT / metadata_path).exists():
-                with open(PROJECT_ROOT / metadata_path, "r") as f:
+            if (config["project_root"] / metadata_path).exists():
+                with open(config["project_root"] / metadata_path, "r") as f:
                     metadata = json.load(f)
 
                 return {

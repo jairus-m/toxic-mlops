@@ -5,7 +5,7 @@ Module for downloading the training dataset and uploading it to S3.
 import shutil
 from pathlib import Path
 import kagglehub
-from src.core import logger, config, PROJECT_ROOT, upload_to_s3
+from src.core import logger, config, upload_to_s3
 
 
 def download_kaggle_dataset() -> Path:
@@ -25,11 +25,15 @@ def download_kaggle_dataset() -> Path:
         # Determine the local path for the data
         if env == "production":
             # In prod, always use a temporary directory for local storage
-            local_dir = PROJECT_ROOT / "assets" / "data"
+            if "data_directories" in config:
+                data_dir_str = config["data_directories"].get("base", "assets/data")
+                local_dir = config["project_root"] / data_dir_str
+            else:
+                local_dir = config["project_root"] / "assets" / "data"
         else:
             # In dev, use the path from config
             local_path_str = config["paths"]["data"]
-            local_dir = (PROJECT_ROOT / local_path_str).parent
+            local_dir = (config["project_root"] / local_path_str).parent
 
         local_dir.mkdir(parents=True, exist_ok=True)
         destination_file = local_dir / dataset_name

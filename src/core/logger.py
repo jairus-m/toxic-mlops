@@ -1,17 +1,26 @@
+"""
+Consolidated logging module for the toxic comment classification project.
+
+This module provides all logging functionality including:
+- Basic console and file loggers
+- JSON formatters for structured logging
+- S3 and DynamoDB handlers for cloud logging
+- Pre-configured logger instances
+"""
+
 import logging
 import json
 import uuid
+import sys
+import os
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
-import os
+
 from .load_config import config
-from .base_logger import setup_base_logger, PROJECT_ROOT
 
 
 class JsonFormatter(logging.Formatter):
-    """
-    Formats log records as JSON strings.
-    """
+    """Formats log records as JSON strings."""
 
     def format(self, record):
         log_record = {
@@ -27,55 +36,70 @@ class JsonFormatter(logging.Formatter):
 
 
 class S3FileHandler(logging.Handler):
-    """
-    A logging handler that appends logs to a file in S3.
-    """
+    """A logging handler that appends logs to a file in S3."""
 
-    def __init__(self, bucket: str, key: str):
+    def __init__(self, bucket: str, key: str, config: dict):
         super().__init__()
         self.bucket = bucket
         self.key = key
-        self.local_temp_path = (
-            PROJECT_ROOT / "assets" / "logs" / "temp_prediction_logs.json"
-        )
+
+        # Use config-based path
+        if "log_directories" in config:
+            temp_path = config["log_directories"].get(
+                "temp_prediction", "assets/logs/temp_prediction_logs.json"
+            )
+            self.local_temp_path = config["project_root"] / temp_path
+        else:
+            self.local_temp_path = (
+                config["project_root"] / "assets" / "logs" / "temp_prediction_logs.json"
+            )
+
         self.local_temp_path.parent.mkdir(parents=True, exist_ok=True)
 
     def emit(self, record):
-        from .aws import (
-            upload_to_s3,
-            download_from_s3,
-        )  # Import here to avoid circular dependency
+        from .aws_utils import upload_to_s3, download_from_s3
 
         log_entry = self.format(record)
 
-        # Download the current log file from S3, if it exists
-        download_from_s3(self.bucket, self.key, self.local_temp_path)
+        download_from_s3(
+            self.bucket,
+            self.key,
+            self.local_temp_path,
+            logger=logging.getLogger(__name__),
+        )
 
-        # Append the new log entry
         with open(self.local_temp_path, "a") as f:
             f.write(log_entry + "\n")
 
-        # Upload the updated log file back to S3
-        upload_to_s3(self.local_temp_path, self.key)
+        upload_to_s3(self.local_temp_path, self.key, logger=logging.getLogger(__name__))
 
 
 class DynamoDBHandler(logging.Handler):
-    """
-    A logging handler that writes logs to DynamoDB with error handling and fallback.
-    """
+    """A logging handler that writes logs to DynamoDB with error handling and fallback."""
 
-    def __init__(self, table_name: str):
+    def __init__(self, table_name: str, config: dict):
         super().__init__()
         self.table_name = table_name
+        self.config = config
         self._dynamodb_client = None
         self._fallback_handler = None
         self._setup_fallback()
 
     def _setup_fallback(self):
         """Setup fallback file handler for when DynamoDB is unavailable."""
-        fallback_path = (
-            PROJECT_ROOT / "assets" / "logs" / "prediction_logs_fallback.json"
-        )
+        if "log_directories" in self.config:
+            fallback_path_str = self.config["log_directories"].get(
+                "fallback_prediction", "assets/logs/prediction_logs_fallback.json"
+            )
+            fallback_path = self.config["project_root"] / fallback_path_str
+        else:
+            fallback_path = (
+                self.config["project_root"]
+                / "assets"
+                / "logs"
+                / "prediction_logs_fallback.json"
+            )
+
         fallback_path.parent.mkdir(parents=True, exist_ok=True)
         self._fallback_handler = RotatingFileHandler(
             fallback_path, maxBytes=5 * 1024 * 1024, backupCount=5
@@ -119,7 +143,6 @@ class DynamoDBHandler(logging.Handler):
         else:
             log_data = {"message": record.getMessage()}
 
-        # Add metadata
         log_data.update(
             {
                 "log_level": record.levelname,
@@ -148,22 +171,65 @@ class DynamoDBHandler(logging.Handler):
                 raise Exception("DynamoDB client not available")
 
             item = self._create_dynamodb_item(record)
-
-            # Write to DynamoDB
             self.dynamodb_client.put_item(TableName=self.table_name, Item=item)
 
         except Exception as e:
-            # Fallback to file logging
             print(f"DynamoDB logging failed, using fallback: {e}")
             if self._fallback_handler:
                 self._fallback_handler.emit(record)
 
 
+def setup_logger(
+    name: str, config: dict, log_config_key: str = "main_logging"
+) -> logging.Logger:
+    """
+    Sets up a logger with console and optional file/cloud output.
+
+    Args:
+        name (str): Logger name
+        config (dict): Application configuration
+        log_config_key (str): Key in config for logging configuration
+
+    Returns:
+        logging.Logger: Configured logger instance
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+
+    if logger.handlers:
+        return logger
+
+    # Basic formatter for console and simple file logging
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    # Always add console handler
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+    # Add file handler if configured
+    log_config = config.get(log_config_key, {})
+    if log_config.get("handler") == "file":
+        log_path_str = log_config.get("path", "assets/logs/app.log")
+        log_path = config["project_root"] / log_path_str
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fh = RotatingFileHandler(log_path, maxBytes=5 * 1024 * 1024, backupCount=5)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+
+    return logger
+
+
 def setup_prediction_logger(config: dict) -> logging.Logger:
     """
-    Sets up a logger for predictions based on the provided configuration.
+    Sets up a specialized logger for predictions with cloud storage options.
+
     Args:
         config (dict): The application configuration.
+
     Returns:
         logging.Logger: The configured logger instance.
     """
@@ -182,58 +248,43 @@ def setup_prediction_logger(config: dict) -> logging.Logger:
         bucket_name = os.getenv("S3_BUCKET_NAME")
         s3_key = log_config.get("key")
         if bucket_name and s3_key:
-            handler = S3FileHandler(bucket=bucket_name, key=s3_key)
+            handler = S3FileHandler(bucket=bucket_name, key=s3_key, config=config)
             handler.setFormatter(JsonFormatter())
             logger.addHandler(handler)
         else:
             logger.error("S3_BUCKET_NAME or S3 key not configured for production.")
             logger.addHandler(logging.NullHandler())
+
     elif env == "production" and handler_type == "dynamodb":
         table_name = os.getenv("DYNAMODB_TABLE_NAME") or log_config.get("table_name")
         if table_name:
             try:
-                handler = DynamoDBHandler(table_name=table_name)
+                handler = DynamoDBHandler(table_name=table_name, config=config)
                 handler.setFormatter(JsonFormatter())
                 logger.addHandler(handler)
             except ImportError:
                 logger.error(
                     "boto3 not available for DynamoDB logging. Using file fallback."
                 )
-                # Fallback to file logging
-                log_path = (
-                    PROJECT_ROOT / "assets" / "logs" / "prediction_logs_fallback.json"
-                )
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                fh = RotatingFileHandler(
-                    log_path, maxBytes=5 * 1024 * 1024, backupCount=5
-                )
-                fh.setFormatter(JsonFormatter())
-                logger.addHandler(fh)
+                _add_fallback_file_handler(logger, config)
             except Exception as e:
                 logger.error(
                     f"Failed to setup DynamoDB logging: {e}. Using file fallback."
                 )
-                # Fallback to file logging
-                log_path = (
-                    PROJECT_ROOT / "assets" / "logs" / "prediction_logs_fallback.json"
-                )
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                fh = RotatingFileHandler(
-                    log_path, maxBytes=5 * 1024 * 1024, backupCount=5
-                )
-                fh.setFormatter(JsonFormatter())
-                logger.addHandler(fh)
+                _add_fallback_file_handler(logger, config)
         else:
             logger.error("DYNAMODB_TABLE_NAME not configured for production.")
             logger.addHandler(logging.NullHandler())
+
     elif handler_type == "file":
         log_path_str = log_config.get("path", "assets/logs/prediction_logs.json")
-        log_path = PROJECT_ROOT / log_path_str
+        log_path = config["project_root"] / log_path_str
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         fh = RotatingFileHandler(log_path, maxBytes=5 * 1024 * 1024, backupCount=5)
         fh.setFormatter(JsonFormatter())
         logger.addHandler(fh)
+
     else:
         logger.error(
             f"Invalid prediction_logging handler for env '{env}': {handler_type}"
@@ -243,6 +294,23 @@ def setup_prediction_logger(config: dict) -> logging.Logger:
     return logger
 
 
-# Create the loggers using base configuration
-logger = setup_base_logger("main", config.get("main_logging", {}))
+def _add_fallback_file_handler(logger: logging.Logger, config: dict):
+    """Helper function to add fallback file handler."""
+    if "log_directories" in config:
+        fallback_path_str = config["log_directories"].get(
+            "fallback_prediction", "assets/logs/prediction_logs_fallback.json"
+        )
+        log_path = config["project_root"] / fallback_path_str
+    else:
+        log_path = (
+            config["project_root"] / "assets" / "logs" / "prediction_logs_fallback.json"
+        )
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = RotatingFileHandler(log_path, maxBytes=5 * 1024 * 1024, backupCount=5)
+    fh.setFormatter(JsonFormatter())
+    logger.addHandler(fh)
+
+
+logger = setup_logger("main", config)
 prediction_logger = setup_prediction_logger(config)
