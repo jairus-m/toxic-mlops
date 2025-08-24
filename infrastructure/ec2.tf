@@ -117,7 +117,7 @@ resource "aws_instance" "monitoring" {
   depends_on = [
     aws_instance.frontend
   ]
-  instance_type = "t2.micro"
+  instance_type = "t2.small"
   ami           = local.amazon_linux_ami_id
 
   vpc_security_group_ids = [aws_security_group.monitoring.id]
@@ -153,7 +153,7 @@ resource "aws_instance" "mlflow_server" {
 module "ml_training_deployment" {
   source      = "./modules/docker_deployment"
   depends_on  = [module.mlflow_deployment]
-  instance_ip = aws_instance.ml_training.public_ip
+  instance_ip = aws_eip.ml_training.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
   file_sources = concat(local.common_files, [
@@ -167,14 +167,14 @@ module "ml_training_deployment" {
 
   build_and_run_commands = [
     "sudo docker build -f src/sklearn_training/Dockerfile -t toxic-comments-training .",
-    "sudo docker run -d --name training ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.ml_training.id}-training ${join(" ", local.common_env_vars)} -e TRAIN_MODEL=${var.train_model} -e MLFLOW_SERVER_IP=${aws_instance.mlflow_server.public_ip} toxic-comments-training:latest"
+    "sudo docker run -d --name training ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.ml_training.id}-training ${join(" ", local.common_env_vars)} -e TRAIN_MODEL=${var.train_model} -e MLFLOW_SERVER_IP=${aws_eip.mlflow_server.public_ip} toxic-comments-training:latest"
   ]
 }
 
 module "backend_deployment" {
   source      = "./modules/docker_deployment"
   depends_on  = [module.ml_training_deployment]
-  instance_ip = aws_instance.backend.public_ip
+  instance_ip = aws_eip.backend.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
   file_sources = concat(local.common_files, [
@@ -195,7 +195,7 @@ module "backend_deployment" {
 module "frontend_deployment" {
   source      = "./modules/docker_deployment"
   depends_on  = [module.backend_deployment]
-  instance_ip = aws_instance.frontend.public_ip
+  instance_ip = aws_eip.frontend.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
   file_sources = concat(local.common_files, [
@@ -209,14 +209,14 @@ module "frontend_deployment" {
 
   build_and_run_commands = [
     "sudo docker build -f src/streamlit_frontend/Dockerfile -t toxic-comments-frontend .",
-    "sudo docker run -d -p 8501:8501 --restart=always --name frontend ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.frontend.id}-frontend ${join(" ", local.common_env_vars)} -e FASTAPI_BACKEND_URL=http://${aws_instance.backend.public_ip}:8000 toxic-comments-frontend:latest"
+    "sudo docker run -d -p 8501:8501 --restart=always --name frontend ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.frontend.id}-frontend ${join(" ", local.common_env_vars)} -e FASTAPI_BACKEND_URL=http://${aws_eip.backend.public_ip}:8000 toxic-comments-frontend:latest"
   ]
 }
 
 module "monitoring_deployment" {
   source      = "./modules/docker_deployment"
   depends_on  = [module.frontend_deployment]
-  instance_ip = aws_instance.monitoring.public_ip
+  instance_ip = aws_eip.monitoring.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
   file_sources = concat(local.common_files, [
@@ -230,14 +230,14 @@ module "monitoring_deployment" {
 
   build_and_run_commands = [
     "sudo docker build -f src/streamlit_monitoring/Dockerfile -t toxic-comments-monitoring .",
-    "sudo docker run -d -p 8502:8502 --restart=always --name monitoring ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.monitoring.id}-monitoring ${join(" ", local.common_env_vars)} -e FASTAPI_BACKEND_URL=http://${aws_instance.backend.public_ip}:8000 toxic-comments-monitoring:latest"
+    "sudo docker run -d -p 8502:8502 --restart=always --name monitoring ${join(" ", local.awslogs_config)} --log-opt awslogs-stream=${aws_instance.monitoring.id}-monitoring ${join(" ", local.common_env_vars)} -e FASTAPI_BACKEND_URL=http://${aws_eip.backend.public_ip}:8000 toxic-comments-monitoring:latest"
   ]
 }
 
 module "mlflow_deployment" {
   source      = "./modules/docker_deployment"
   depends_on  = [aws_db_instance.mlflow_db]
-  instance_ip = aws_instance.mlflow_server.public_ip
+  instance_ip = aws_eip.mlflow_server.public_ip
   private_key = tls_private_key.rsa.private_key_pem
 
   # MLflow server doesn't need application files, just basic setup
@@ -256,24 +256,80 @@ locals {
   amazon_linux_ami_id = "ami-0c02fb55956c7d316" # Amazon Linux 2 AMI (HVM) - Kernel 5.10, SSD Volume Type
 }
 
+# Elastic IP addresses for static IP persistence across lab sessions
+resource "aws_eip" "ml_training" {
+  instance = aws_instance.ml_training.id
+  domain   = "vpc"
+  
+  tags = {
+    Name      = "ML Training EIP"
+    Project   = "Toxic-Comments-AWS"
+    ManagedBy = "Terraform"
+  }
+}
+
+resource "aws_eip" "backend" {
+  instance = aws_instance.backend.id
+  domain   = "vpc"
+  
+  tags = {
+    Name      = "Backend EIP"
+    Project   = "Toxic-Comments-AWS"
+    ManagedBy = "Terraform"
+  }
+}
+
+resource "aws_eip" "frontend" {
+  instance = aws_instance.frontend.id
+  domain   = "vpc"
+  
+  tags = {
+    Name      = "Frontend EIP"
+    Project   = "Toxic-Comments-AWS"
+    ManagedBy = "Terraform"
+  }
+}
+
+resource "aws_eip" "monitoring" {
+  instance = aws_instance.monitoring.id
+  domain   = "vpc"
+  
+  tags = {
+    Name      = "Monitoring EIP"
+    Project   = "Toxic-Comments-AWS"
+    ManagedBy = "Terraform"
+  }
+}
+
+resource "aws_eip" "mlflow_server" {
+  instance = aws_instance.mlflow_server.id
+  domain   = "vpc"
+  
+  tags = {
+    Name      = "MLflow Server EIP"
+    Project   = "Toxic-Comments-AWS"
+    ManagedBy = "Terraform"
+  }
+}
+
 # Outputs
 
 output "frontend_url" {
   description = "HTTP URL for accessing the Streamlit frontend."
-  value       = "http://${aws_instance.frontend.public_ip}:8501"
+  value       = "http://${aws_eip.frontend.public_ip}:8501"
 }
 
 output "monitoring_url" {
   description = "HTTP URL for accessing the Streamlit monitoring."
-  value       = "http://${aws_instance.monitoring.public_ip}:8502"
+  value       = "http://${aws_eip.monitoring.public_ip}:8502"
 }
 
 output "mlflow_server_url" {
   description = "HTTP URL for accessing the MLflow tracking server."
-  value       = "http://${aws_instance.mlflow_server.public_ip}:5000"
+  value       = "http://${aws_eip.mlflow_server.public_ip}:5000"
 }
 
 output "ssh_command_backend" {
   description = "Command to SSH into the backend instance."
-  value       = "ssh -i ${local_sensitive_file.private_key.filename} ec2-user@${aws_instance.backend.public_ip}"
+  value       = "ssh -i ${local_sensitive_file.private_key.filename} ec2-user@${aws_eip.backend.public_ip}"
 }
