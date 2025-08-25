@@ -6,6 +6,8 @@
 
 <img src="../images/terraform_output.png" width="1000"/>
 
+**NOTE:** That after this screenshot was taken, I added [Elastic IPs](https://github.com/jairus-m/toxic-mlops/pull/17), so the total resources added should be 49.
+
 ## MLflow Server UI
 
 ### Experiments:
