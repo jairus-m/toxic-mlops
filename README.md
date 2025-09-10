@@ -1,5 +1,8 @@
 # Toxic Comment Analysis - AWS Deployment
 
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/jairus-m/toxic-mlops)
+
 > **Note**: This project was heavily influenced and informed by the incremental learnings and implementations of my mlops project monorepo, [mlops-du](https://github.com/jairus-m/mlops-du). The architectural patterns, deployment strategies, and MLOps best practices demonstrated in this repository build upon the foundational work and lessons learned.
 
 In addition, to view the final project rubric and screenshots of the AWS deployment view:
